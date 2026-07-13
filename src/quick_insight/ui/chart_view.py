@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import QTimer, QUrl, Signal
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
     QWebEngineProfile,
@@ -12,7 +14,16 @@ from PySide6.QtWebEngineCore import (
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from quick_insight.charts.exporting import (
+    ChartExportFormat,
+    ChartExportResult,
+    build_to_image_script,
+    export_document_file,
+    write_image_data_url,
+)
 from quick_insight.charts.rendering import PlotlyChartDocument, build_plotly_html
+
+ExportCallback = Callable[[ChartExportResult | Exception], None]
 
 
 class OfflineChartRequestInterceptor(QWebEngineUrlRequestInterceptor):
@@ -41,11 +52,14 @@ class OfflineChartWebView(QWebEngineView):
 
 class PlotlyChartView(QWidget):
     chart_loaded = Signal(bool)
+    export_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("plotlyChartView")
         self._last_html = ""
+        self._document: PlotlyChartDocument | None = None
+        self._pending_export: tuple[ChartExportFormat, Path, ExportCallback, int] | None = None
         self._title_label = QLabel("尚未生成图表")
         self._title_label.setObjectName("chartTitleLabel")
         self._status_label = QLabel("从推荐卡片点击生成后，将在这里载入本地 Plotly 图表。")
@@ -58,6 +72,23 @@ class PlotlyChartView(QWidget):
         self._reset_button = QPushButton("重置视图")
         self._reset_button.setObjectName("chartResetButton")
         self._reset_button.clicked.connect(self.reset_view)
+        self._export_html_button = QPushButton("导出 HTML")
+        self._export_html_button.setObjectName("chartExportHtmlButton")
+        self._export_svg_button = QPushButton("导出 SVG")
+        self._export_svg_button.setObjectName("chartExportSvgButton")
+        self._export_png_button = QPushButton("导出 PNG")
+        self._export_png_button.setObjectName("chartExportPngButton")
+        self._export_json_button = QPushButton("导出 JSON")
+        self._export_json_button.setObjectName("chartExportJsonButton")
+        for export_format, button in (
+            (ChartExportFormat.HTML, self._export_html_button),
+            (ChartExportFormat.SVG, self._export_svg_button),
+            (ChartExportFormat.PNG, self._export_png_button),
+            (ChartExportFormat.JSON, self._export_json_button),
+        ):
+            button.clicked.connect(
+                lambda _checked=False, fmt=export_format: self.export_requested.emit(fmt.value)
+            )
 
         header = QFrame()
         header.setObjectName("chartHeader")
@@ -65,6 +96,10 @@ class PlotlyChartView(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         header_layout.addWidget(self._title_label, stretch=1)
+        header_layout.addWidget(self._export_html_button)
+        header_layout.addWidget(self._export_svg_button)
+        header_layout.addWidget(self._export_png_button)
+        header_layout.addWidget(self._export_json_button)
         header_layout.addWidget(self._reset_button)
 
         layout = QVBoxLayout(self)
@@ -81,7 +116,12 @@ class PlotlyChartView(QWidget):
     def last_html(self) -> str:
         return self._last_html
 
+    @property
+    def current_document(self) -> PlotlyChartDocument | None:
+        return self._document
+
     def render_document(self, document: PlotlyChartDocument) -> None:
+        self._document = document
         self._title_label.setText(document.title)
         self._status_label.setText("正在载入本地 Plotly 图表...")
         self._warning_label.setText(_warning_text(document))
@@ -92,10 +132,72 @@ class PlotlyChartView(QWidget):
             return
         self._web_view.setHtml(self._last_html, QUrl("qrc:/quick-insight/charts/"))
 
+    def export_document(
+        self,
+        export_format: ChartExportFormat,
+        destination: Path,
+        callback: ExportCallback,
+    ) -> None:
+        document = self._document
+        if document is None:
+            callback(RuntimeError("No chart document has been rendered."))
+            return
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if export_format in {ChartExportFormat.HTML, ChartExportFormat.JSON}:
+                callback(export_document_file(document, destination, export_format))
+                return
+            if os.environ.get("QT_QPA_PLATFORM", "").casefold() == "offscreen":
+                callback(
+                    RuntimeError(
+                        "SVG/PNG export requires a loaded QWebEngineView; offscreen tests "
+                        "only validate HTML/JSON export."
+                    )
+                )
+                return
+            self._pending_export = (export_format, destination, callback, 0)
+            self._web_view.page().runJavaScript(build_to_image_script(export_format))
+            QTimer.singleShot(50, self._poll_image_export)
+        except Exception as exc:
+            callback(exc)
+
     def reset_view(self) -> None:
         self._web_view.page().runJavaScript(
             "window.quickInsightChart && window.quickInsightChart.resetView();"
         )
+
+    def _poll_image_export(self) -> None:
+        self._web_view.page().runJavaScript(
+            "window.quickInsightExportResult",
+            self._on_image_export_result,
+        )
+
+    def _on_image_export_result(self, result: object) -> None:
+        pending = self._pending_export
+        document = self._document
+        if pending is None or document is None:
+            return
+        export_format, destination, callback, attempts = pending
+        if not isinstance(result, dict):
+            if attempts >= 200:
+                self._pending_export = None
+                callback(RuntimeError("Timed out while waiting for Plotly.toImage export."))
+                return
+            self._pending_export = (export_format, destination, callback, attempts + 1)
+            QTimer.singleShot(50, self._poll_image_export)
+            return
+        self._pending_export = None
+        if not result.get("ok"):
+            callback(RuntimeError(str(result.get("error", "Plotly.toImage export failed."))))
+            return
+        data_url = result.get("dataUrl")
+        if not isinstance(data_url, str):
+            callback(RuntimeError("Plotly.toImage did not return image data."))
+            return
+        try:
+            callback(write_image_data_url(data_url, destination, export_format, document=document))
+        except Exception as exc:
+            callback(exc)
 
     def _on_load_finished(self, ok: bool) -> None:
         self._status_label.setText(

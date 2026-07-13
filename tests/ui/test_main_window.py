@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from quick_insight.application.importing import TabularImportService
 from quick_insight.application.text_corpus import TextCorpusService
+from quick_insight.charts import ChartExportFormat, ChartExportResult
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
@@ -175,6 +176,20 @@ def test_main_window_shows_recommendation_cards_for_tabular_profile(qtbot, tmp_p
     assert "renderer_preview_static" not in chart_view.last_html
     assert "chart_data_preparation_pending" not in chart_view.last_html
     assert window.findChild(QLabel, "errorLabel").text() == "无错误"
+    assert window.findChild(QPushButton, "chartExportHtmlButton") is not None
+    assert window.findChild(QPushButton, "chartExportSvgButton") is not None
+    assert window.findChild(QPushButton, "chartExportPngButton") is not None
+    assert window.findChild(QPushButton, "chartExportJsonButton") is not None
+
+    html_results: list[ChartExportResult | Exception] = []
+    json_results: list[ChartExportResult | Exception] = []
+    chart_view.export_document(ChartExportFormat.HTML, tmp_path / "chart.html", html_results.append)
+    chart_view.export_document(ChartExportFormat.JSON, tmp_path / "chart.json", json_results.append)
+
+    assert isinstance(html_results[0], ChartExportResult)
+    assert isinstance(json_results[0], ChartExportResult)
+    assert (tmp_path / "chart.html").read_text(encoding="utf-8").startswith("<!doctype html>")
+    assert '"schema_version": 1' in (tmp_path / "chart.json").read_text(encoding="utf-8")
 
 
 def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

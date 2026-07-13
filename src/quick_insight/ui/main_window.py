@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -48,6 +49,8 @@ from quick_insight.application.text_labeling import (
 )
 from quick_insight.application.text_profiling import TextCorpusProfiler
 from quick_insight.charts import (
+    ChartExportFormat,
+    ChartExportResult,
     ChartRecommendationEngine,
     PlotlyChartDocument,
     build_preview_document,
@@ -142,6 +145,7 @@ class MainWindow(QMainWindow):
 
         self._configure_toolbar()
         self.setCentralWidget(self._build_workspace())
+        self._chart_view.export_requested.connect(self._on_chart_export_requested)
         self.statusBar().showMessage("准备就绪")
         self.apply_theme(settings.theme, persist=False)
         self.destroyed.connect(self._on_destroyed)
@@ -1052,6 +1056,99 @@ class MainWindow(QMainWindow):
         self._chart_view.render_document(document)
         self._stack.setCurrentIndex(4)
 
+    def _on_chart_export_requested(self, export_format_value: str) -> None:
+        try:
+            export_format = ChartExportFormat(export_format_value)
+        except ValueError:
+            self.show_user_error(
+                UserFacingError(
+                    code="CHART_EXPORT_FORMAT_UNKNOWN",
+                    title_zh="导出格式未知",
+                    message_zh=f"不支持的图表导出格式：{export_format_value}",
+                    next_action_zh="请使用 HTML、SVG、PNG 或 JSON 导出按钮。",
+                )
+            )
+            return
+        document = self._chart_view.current_document
+        if document is None:
+            self.show_user_error(
+                UserFacingError(
+                    code="CHART_EXPORT_NO_DOCUMENT",
+                    title_zh="没有可导出的图表",
+                    message_zh="请先从推荐卡片生成一个图表。",
+                    next_action_zh="生成图表后再使用导出按钮。",
+                )
+            )
+            return
+        destination = self._choose_chart_export_path(export_format, document)
+        if destination is None:
+            return
+        self._jobs_label.setText(f"后台任务：正在导出 {export_format.value.upper()} 图表")
+        self._chart_view.export_document(
+            export_format,
+            destination,
+            self._on_chart_export_completed,
+        )
+
+    def _choose_chart_export_path(
+        self,
+        export_format: ChartExportFormat,
+        document: PlotlyChartDocument,
+    ) -> Path | None:
+        default_dir = Path.home() / "Documents"
+        if not default_dir.exists():
+            default_dir = self._paths.config_dir
+        suggested = default_dir / (_safe_export_stem(document.title) + f".{export_format.value}")
+        filters = {
+            ChartExportFormat.HTML: "HTML 文件 (*.html)",
+            ChartExportFormat.SVG: "SVG 文件 (*.svg)",
+            ChartExportFormat.PNG: "PNG 文件 (*.png)",
+            ChartExportFormat.JSON: "JSON 文件 (*.json)",
+        }
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "导出图表",
+            str(suggested),
+            filters[export_format],
+        )
+        if not selected:
+            return None
+        destination = Path(selected)
+        if destination.suffix.lower() != f".{export_format.value}":
+            destination = destination.with_suffix(f".{export_format.value}")
+        return destination
+
+    def _on_chart_export_completed(self, result: ChartExportResult | Exception) -> None:
+        if isinstance(result, Exception):
+            self._jobs_label.setText("后台任务：图表导出失败")
+            self.show_user_error(
+                UserFacingError(
+                    code="CHART_EXPORT_FAILED",
+                    title_zh="图表导出失败",
+                    message_zh="导出图表时发生错误。",
+                    next_action_zh="请确认目标文件夹可写，稍后重试或复制技术细节提交问题。",
+                    technical_detail=repr(result),
+                )
+            )
+            return
+        self._jobs_label.setText("后台任务：图表导出完成")
+        if result.warning_zh:
+            self.show_user_error(
+                UserFacingError(
+                    code="CHART_EXPORT_COMPLETED_WITH_WARNING",
+                    title_zh="图表已导出，但有提示",
+                    message_zh=result.warning_zh,
+                    next_action_zh=(
+                        f"文件已保存到 {result.path}，"
+                        "如需完全矢量图可改用非 WebGL 图表。"
+                    ),
+                    technical_detail=f"format={result.format.value}; path={result.path}",
+                )
+            )
+            return
+        self._error_label.setText(f"图表已导出：{result.path}")
+        self.statusBar().showMessage("图表导出完成", 5000)
+
     def _show_recommendation_future_error(
         self,
         action: str,
@@ -1301,6 +1398,17 @@ def _field_profile_text(column: ColumnProfile) -> str:
         f"{column.name} · {_semantic_type_text(column.semantic_type.value)} · "
         f"缺失 {column.null_count} · 不同值 {distinct}{warnings}"
     )
+
+
+def _safe_export_stem(title: str) -> str:
+    cleaned = "".join(
+        character
+        if character.isalnum() or character in {" ", "-", "_"}
+        else "_"
+        for character in title
+    ).strip()
+    cleaned = "_".join(part for part in cleaned.split() if part)
+    return cleaned[:80] or "quick-insight-chart"
 
 
 def _semantic_type_text(value: str) -> str:

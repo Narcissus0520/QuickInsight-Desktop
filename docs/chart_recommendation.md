@@ -4,8 +4,8 @@ P0 chart recommendation is deterministic, explainable, and testable. M3 implemen
 rule scoring in `quick_insight.charts.recommendation` and workspace recommendation
 cards in the Qt shell. The first M4 slice adds an offline Plotly/WebEngine renderer
 preview. The current M4 data-preparation slice connects selected tabular
-recommendations to DuckDB-backed prepared chart datasets; chart export remains M4
-work.
+recommendations to DuckDB-backed prepared chart datasets; chart export now supports
+self-contained HTML, figure/config JSON, SVG, and PNG.
 
 Scoring uses the repository contract's 100-point breakdown:
 
@@ -37,3 +37,8 @@ Plotly.js. Supported strategies currently include Top N plus Other category
 aggregation, time-window mean downsampling, deterministic scatter sampling,
 histogram bins, 2D density bins, and categorical cross-tab aggregation. The edit
 action remains guarded until editable chart specifications are implemented.
+
+Chart export writes self-contained interactive HTML and versioned JSON directly
+from the prepared `PlotlyChartDocument`. SVG and PNG export use local Plotly.js
+`toImage` inside the chart `QWebEngineView`; SVG export reports a warning when a
+WebGL trace may prevent a fully vector result.
