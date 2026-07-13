@@ -120,3 +120,25 @@ class ChartRecommendation:
     data_budget: dict[str, Any] = field(default_factory=dict)
     export_strategy: str = "not_prepared"
     schema_version: int = 1
+
+
+@dataclass(frozen=True)
+class PreparedChartDataset:
+    columns: tuple[str, ...]
+    rows: tuple[tuple[Any, ...], ...]
+    original_rows: int
+    rendered_rows: int
+    method: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+    approximate: bool = False
+    schema_version: int = 1
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "original_rows": self.original_rows,
+            "rendered_rows": self.rendered_rows,
+            "method": self.method,
+            "parameters": self.parameters,
+            "approximate": self.approximate,
+        }

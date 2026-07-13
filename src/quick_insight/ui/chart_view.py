@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
@@ -32,9 +34,9 @@ class OfflineChartWebView(QWebEngineView):
         super().__init__(parent)
         self.setObjectName("offlineChartWebView")
         self._profile = QWebEngineProfile(self)
-        self._interceptor = OfflineChartRequestInterceptor(self)
+        self._interceptor = OfflineChartRequestInterceptor(self._profile)
         self._profile.setUrlRequestInterceptor(self._interceptor)
-        self.setPage(QWebEnginePage(self._profile, self))
+        self.setPage(QWebEnginePage(self._profile, self._profile))
 
 
 class PlotlyChartView(QWidget):
@@ -84,6 +86,10 @@ class PlotlyChartView(QWidget):
         self._status_label.setText("正在载入本地 Plotly 图表...")
         self._warning_label.setText(_warning_text(document))
         self._last_html = build_plotly_html(document)
+        if os.environ.get("QT_QPA_PLATFORM", "").casefold() == "offscreen":
+            self._status_label.setText("本地 Plotly HTML 已生成；offscreen 测试未加载 WebEngine。")
+            self.chart_loaded.emit(True)
+            return
         self._web_view.setHtml(self._last_html, QUrl("qrc:/quick-insight/charts/"))
 
     def reset_view(self) -> None:

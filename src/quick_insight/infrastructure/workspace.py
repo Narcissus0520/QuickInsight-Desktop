@@ -10,7 +10,7 @@ from typing import Any
 import duckdb
 import polars as pl
 
-from quick_insight.domain.models import Category, TextRecord
+from quick_insight.domain.models import Category, PreparedChartDataset, TextRecord
 from quick_insight.infrastructure.csv_import import CsvImportOptions
 from quick_insight.infrastructure.sql import quote_identifier
 
@@ -774,6 +774,583 @@ class WorkspaceDatabase:
             mean_difference=mean_difference,
             mean_ratio=mean_ratio,
         )
+
+    def chart_time_series(
+        self,
+        table_name: str,
+        time_column: WorkspaceColumn,
+        numeric_column: WorkspaceColumn,
+        *,
+        target_points: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        time_sql = quote_identifier(time_column.name)
+        numeric_sql = quote_identifier(numeric_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table_sql}
+                WHERE {time_sql} IS NOT NULL
+                  AND {numeric_sql} IS NOT NULL
+                """
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            if original_rows <= max(target_points, 1):
+                rows = connection.execute(
+                    f"""
+                    SELECT
+                        CAST({time_sql} AS TIMESTAMP) AS x_value,
+                        CAST({numeric_sql} AS DOUBLE) AS y_value,
+                        1 AS source_count
+                    FROM {table_sql}
+                    WHERE {time_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                    ORDER BY x_value ASC
+                    """,
+                ).fetchall()
+                return PreparedChartDataset(
+                    columns=("x", "y", "source_count"),
+                    rows=tuple(tuple(row) for row in rows),
+                    original_rows=original_rows,
+                    rendered_rows=len(rows),
+                    method="raw_time_series",
+                    parameters={
+                        "time_column": time_column.name,
+                        "numeric_column": numeric_column.name,
+                        "target_points": target_points,
+                    },
+                    approximate=False,
+                )
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({time_sql} AS TIMESTAMP) AS x_value,
+                        CAST({numeric_sql} AS DOUBLE) AS y_value
+                    FROM {table_sql}
+                    WHERE {time_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                ),
+                numbered AS (
+                    SELECT
+                        x_value,
+                        y_value,
+                        ROW_NUMBER() OVER (ORDER BY x_value ASC) AS row_number,
+                        COUNT(*) OVER () AS total_rows
+                    FROM clean
+                ),
+                bucketed AS (
+                    SELECT
+                        CAST(FLOOR(((row_number - 1) * ?) / total_rows) AS BIGINT) AS bucket,
+                        x_value,
+                        y_value
+                    FROM numbered
+                )
+                SELECT
+                    MIN(x_value) AS x_value,
+                    AVG(y_value) AS y_value,
+                    COUNT(*) AS source_count
+                FROM bucketed
+                GROUP BY bucket
+                ORDER BY bucket ASC
+                """,
+                [target_points],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("x", "y", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="time_window_mean",
+            parameters={
+                "time_column": time_column.name,
+                "numeric_column": numeric_column.name,
+                "target_points": target_points,
+            },
+            approximate=True,
+        )
+
+    def chart_category_numeric_top_n(
+        self,
+        table_name: str,
+        category_column: WorkspaceColumn,
+        numeric_column: WorkspaceColumn,
+        *,
+        limit: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        category_sql = quote_identifier(category_column.name)
+        numeric_sql = quote_identifier(numeric_column.name)
+        rows, original_rows = self._category_numeric_rows(
+            table_sql,
+            category_sql,
+            numeric_sql,
+            limit=limit,
+        )
+        return PreparedChartDataset(
+            columns=("category", "value", "source_count"),
+            rows=rows,
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="top_n_with_other",
+            parameters={
+                "category_column": category_column.name,
+                "numeric_column": numeric_column.name,
+                "limit": limit,
+                "aggregation": "weighted_mean",
+                "other_label": "Other",
+            },
+            approximate=False,
+        )
+
+    def chart_category_count_top_n(
+        self,
+        table_name: str,
+        category_column: WorkspaceColumn,
+        *,
+        limit: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        category_sql = quote_identifier(category_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"SELECT COUNT(*) FROM {table_sql} WHERE {category_sql} IS NOT NULL"
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            rows = connection.execute(
+                f"""
+                WITH grouped AS (
+                    SELECT
+                        CAST({category_sql} AS VARCHAR) AS category,
+                        COUNT(*) AS source_count
+                    FROM {table_sql}
+                    WHERE {category_sql} IS NOT NULL
+                    GROUP BY category
+                ),
+                ranked AS (
+                    SELECT
+                        category,
+                        source_count,
+                        ROW_NUMBER() OVER (ORDER BY source_count DESC, category ASC) AS rank
+                    FROM grouped
+                ),
+                aggregated AS (
+                    SELECT
+                        CASE WHEN rank <= ? THEN category ELSE 'Other' END AS category,
+                        SUM(source_count) AS source_count
+                    FROM ranked
+                    GROUP BY 1
+                )
+                SELECT category, source_count
+                FROM aggregated
+                ORDER BY
+                    CASE WHEN category = 'Other' THEN 1 ELSE 0 END ASC,
+                    source_count DESC,
+                    category ASC
+                """,
+                [limit],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("category", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="top_n_with_other",
+            parameters={
+                "category_column": category_column.name,
+                "limit": limit,
+                "aggregation": "count",
+                "other_label": "Other",
+            },
+            approximate=False,
+        )
+
+    def chart_histogram_bins(
+        self,
+        table_name: str,
+        numeric_column: WorkspaceColumn,
+        *,
+        bins: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        numeric_sql = quote_identifier(numeric_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"SELECT COUNT(*) FROM {table_sql} WHERE {numeric_sql} IS NOT NULL"
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT CAST({numeric_sql} AS DOUBLE) AS value
+                    FROM {table_sql}
+                    WHERE {numeric_sql} IS NOT NULL
+                ),
+                stats AS (
+                    SELECT MIN(value) AS min_value, MAX(value) AS max_value
+                    FROM clean
+                ),
+                binned AS (
+                    SELECT
+                        CASE
+                            WHEN stats.max_value = stats.min_value THEN 0
+                            ELSE LEAST(
+                                ? - 1,
+                                GREATEST(
+                                    0,
+                                    CAST(
+                                        FLOOR(
+                                            ((value - stats.min_value)
+                                             / (stats.max_value - stats.min_value)) * ?
+                                        ) AS BIGINT
+                                    )
+                                )
+                            )
+                        END AS bin_index,
+                        stats.min_value,
+                        stats.max_value
+                    FROM clean, stats
+                )
+                SELECT
+                    min_value + ((max_value - min_value) * bin_index / ?) AS bin_start,
+                    min_value + ((max_value - min_value) * (bin_index + 1) / ?) AS bin_end,
+                    COUNT(*) AS source_count
+                FROM binned
+                GROUP BY bin_index, min_value, max_value
+                ORDER BY bin_index ASC
+                """,
+                [bins, bins, bins, bins],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("bin_start", "bin_end", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="histogram_bins",
+            parameters={"numeric_column": numeric_column.name, "bins": bins},
+            approximate=False,
+        )
+
+    def chart_scatter_sample(
+        self,
+        table_name: str,
+        x_column: WorkspaceColumn,
+        y_column: WorkspaceColumn,
+        *,
+        target_points: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        x_sql = quote_identifier(x_column.name)
+        y_sql = quote_identifier(y_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table_sql}
+                WHERE {x_sql} IS NOT NULL
+                  AND {y_sql} IS NOT NULL
+                """
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            if original_rows <= max(target_points, 1):
+                rows = connection.execute(
+                    f"""
+                    SELECT
+                        CAST({x_sql} AS DOUBLE) AS x_value,
+                        CAST({y_sql} AS DOUBLE) AS y_value
+                    FROM {table_sql}
+                    WHERE {x_sql} IS NOT NULL
+                      AND {y_sql} IS NOT NULL
+                    ORDER BY x_value ASC, y_value ASC
+                    """
+                ).fetchall()
+                return PreparedChartDataset(
+                    columns=("x", "y"),
+                    rows=tuple(tuple(row) for row in rows),
+                    original_rows=original_rows,
+                    rendered_rows=len(rows),
+                    method="raw_scatter",
+                    parameters={
+                        "x_column": x_column.name,
+                        "y_column": y_column.name,
+                        "target_points": target_points,
+                    },
+                    approximate=False,
+                )
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({x_sql} AS DOUBLE) AS x_value,
+                        CAST({y_sql} AS DOUBLE) AS y_value
+                    FROM {table_sql}
+                    WHERE {x_sql} IS NOT NULL
+                      AND {y_sql} IS NOT NULL
+                ),
+                numbered AS (
+                    SELECT
+                        x_value,
+                        y_value,
+                        ROW_NUMBER() OVER (ORDER BY x_value ASC, y_value ASC) AS row_number,
+                        COUNT(*) OVER () AS total_rows
+                    FROM clean
+                )
+                SELECT x_value, y_value
+                FROM numbered
+                WHERE ((row_number - 1) % CAST(CEIL(total_rows::DOUBLE / ?) AS BIGINT)) = 0
+                ORDER BY row_number ASC
+                LIMIT ?
+                """,
+                [target_points, target_points],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("x", "y"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="uniform_sample",
+            parameters={
+                "x_column": x_column.name,
+                "y_column": y_column.name,
+                "target_points": target_points,
+            },
+            approximate=True,
+        )
+
+    def chart_density_bins(
+        self,
+        table_name: str,
+        x_column: WorkspaceColumn,
+        y_column: WorkspaceColumn,
+        *,
+        x_bins: int,
+        y_bins: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        x_sql = quote_identifier(x_column.name)
+        y_sql = quote_identifier(y_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table_sql}
+                WHERE {x_sql} IS NOT NULL
+                  AND {y_sql} IS NOT NULL
+                """
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({x_sql} AS DOUBLE) AS x_value,
+                        CAST({y_sql} AS DOUBLE) AS y_value
+                    FROM {table_sql}
+                    WHERE {x_sql} IS NOT NULL
+                      AND {y_sql} IS NOT NULL
+                ),
+                stats AS (
+                    SELECT
+                        MIN(x_value) AS min_x,
+                        MAX(x_value) AS max_x,
+                        MIN(y_value) AS min_y,
+                        MAX(y_value) AS max_y
+                    FROM clean
+                ),
+                binned AS (
+                    SELECT
+                        CASE
+                            WHEN stats.max_x = stats.min_x THEN 0
+                            ELSE LEAST(
+                                ? - 1,
+                                GREATEST(
+                                    0,
+                                    CAST(
+                                        FLOOR(
+                                            ((x_value - stats.min_x)
+                                             / (stats.max_x - stats.min_x)) * ?
+                                        ) AS BIGINT
+                                    )
+                                )
+                            )
+                        END AS x_bin,
+                        CASE
+                            WHEN stats.max_y = stats.min_y THEN 0
+                            ELSE LEAST(
+                                ? - 1,
+                                GREATEST(
+                                    0,
+                                    CAST(
+                                        FLOOR(
+                                            ((y_value - stats.min_y)
+                                             / (stats.max_y - stats.min_y)) * ?
+                                        ) AS BIGINT
+                                    )
+                                )
+                            )
+                        END AS y_bin,
+                        stats.min_x,
+                        stats.max_x,
+                        stats.min_y,
+                        stats.max_y
+                    FROM clean, stats
+                )
+                SELECT
+                    min_x + ((max_x - min_x) * (x_bin + 0.5) / ?) AS x_center,
+                    min_y + ((max_y - min_y) * (y_bin + 0.5) / ?) AS y_center,
+                    COUNT(*) AS source_count
+                FROM binned
+                GROUP BY x_bin, y_bin, min_x, max_x, min_y, max_y
+                ORDER BY y_bin ASC, x_bin ASC
+                """,
+                [x_bins, x_bins, y_bins, y_bins, x_bins, y_bins],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("x", "y", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="density_2d_bins",
+            parameters={
+                "x_column": x_column.name,
+                "y_column": y_column.name,
+                "x_bins": x_bins,
+                "y_bins": y_bins,
+            },
+            approximate=True,
+        )
+
+    def chart_categorical_heatmap_top_n(
+        self,
+        table_name: str,
+        x_column: WorkspaceColumn,
+        y_column: WorkspaceColumn,
+        *,
+        x_limit: int,
+        y_limit: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        x_sql = quote_identifier(x_column.name)
+        y_sql = quote_identifier(y_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table_sql}
+                WHERE {x_sql} IS NOT NULL
+                  AND {y_sql} IS NOT NULL
+                """
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({x_sql} AS VARCHAR) AS x_value,
+                        CAST({y_sql} AS VARCHAR) AS y_value
+                    FROM {table_sql}
+                    WHERE {x_sql} IS NOT NULL
+                      AND {y_sql} IS NOT NULL
+                ),
+                x_ranked AS (
+                    SELECT
+                        x_value,
+                        ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, x_value ASC) AS x_rank
+                    FROM clean
+                    GROUP BY x_value
+                ),
+                y_ranked AS (
+                    SELECT
+                        y_value,
+                        ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, y_value ASC) AS y_rank
+                    FROM clean
+                    GROUP BY y_value
+                )
+                SELECT
+                    CASE WHEN x_rank <= ? THEN clean.x_value ELSE 'Other' END AS x_value,
+                    CASE WHEN y_rank <= ? THEN clean.y_value ELSE 'Other' END AS y_value,
+                    COUNT(*) AS source_count
+                FROM clean
+                JOIN x_ranked ON clean.x_value = x_ranked.x_value
+                JOIN y_ranked ON clean.y_value = y_ranked.y_value
+                GROUP BY 1, 2
+                ORDER BY source_count DESC, x_value ASC, y_value ASC
+                """,
+                [x_limit, y_limit],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("x", "y", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="categorical_top_n_crosstab",
+            parameters={
+                "x_column": x_column.name,
+                "y_column": y_column.name,
+                "x_limit": x_limit,
+                "y_limit": y_limit,
+                "other_label": "Other",
+            },
+            approximate=False,
+        )
+
+    def _category_numeric_rows(
+        self,
+        table_sql: str,
+        category_sql: str,
+        numeric_sql: str,
+        *,
+        limit: int,
+    ) -> tuple[tuple[tuple[Any, ...], ...], int]:
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table_sql}
+                WHERE {category_sql} IS NOT NULL
+                  AND {numeric_sql} IS NOT NULL
+                """
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            rows = connection.execute(
+                f"""
+                WITH grouped AS (
+                    SELECT
+                        CAST({category_sql} AS VARCHAR) AS category,
+                        COUNT(*) AS source_count,
+                        AVG(CAST({numeric_sql} AS DOUBLE)) AS mean_value
+                    FROM {table_sql}
+                    WHERE {category_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                    GROUP BY category
+                ),
+                ranked AS (
+                    SELECT
+                        category,
+                        source_count,
+                        mean_value,
+                        ROW_NUMBER() OVER (ORDER BY source_count DESC, category ASC) AS rank
+                    FROM grouped
+                ),
+                aggregated AS (
+                    SELECT
+                        CASE WHEN rank <= ? THEN category ELSE 'Other' END AS category,
+                        SUM(mean_value * source_count) / SUM(source_count) AS value,
+                        SUM(source_count) AS source_count
+                    FROM ranked
+                    GROUP BY 1
+                )
+                SELECT category, value, source_count
+                FROM aggregated
+                ORDER BY
+                    CASE WHEN category = 'Other' THEN 1 ELSE 0 END ASC,
+                    source_count DESC,
+                    category ASC
+                """,
+                [limit],
+            ).fetchall()
+        return tuple(tuple(row) for row in rows), original_rows
 
     def _connect(self) -> duckdb.DuckDBPyConnection:
         return duckdb.connect(str(self.path))

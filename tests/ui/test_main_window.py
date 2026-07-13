@@ -154,7 +154,12 @@ def test_main_window_shows_recommendation_cards_for_tabular_profile(qtbot, tmp_p
         timeout=3000,
     )
     cards = window.findChildren(QFrame, "recommendationCard")
-    generate_button = cards[0].findChild(QPushButton, "recommendationGenerateButton")
+    bar_card = next(
+        card
+        for card in cards
+        if "柱状图" in "\n".join(label.text() for label in card.findChildren(QLabel))
+    )
+    generate_button = bar_card.findChild(QPushButton, "recommendationGenerateButton")
     generate_button.click()
 
     chart_view = window.findChild(PlotlyChartView, "plotlyChartView")
@@ -163,8 +168,13 @@ def test_main_window_shows_recommendation_cards_for_tabular_profile(qtbot, tmp_p
     assert "quickInsightChart" in chart_view.last_html
     assert "<script src" not in chart_view.last_html.lower()
     assert "connect-src 'none'" in chart_view.last_html
-    assert "已载入图表渲染器预览" in window.findChild(QLabel, "errorLabel").text()
-    assert "渲染器预览" in window.findChild(QLabel, "chartWarningLabel").text()
+    qtbot.waitUntil(
+        lambda: "top_n_with_other" in chart_view.last_html,
+        timeout=3000,
+    )
+    assert "renderer_preview_static" not in chart_view.last_html
+    assert "chart_data_preparation_pending" not in chart_view.last_html
+    assert window.findChild(QLabel, "errorLabel").text() == "无错误"
 
 
 def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

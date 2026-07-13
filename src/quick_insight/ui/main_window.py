@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from quick_insight import APP_NAME_ZH
 from quick_insight.application.analysis import TabularAnalysisService
+from quick_insight.application.chart_preparation import TabularChartPreparationService
 from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
 from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
@@ -46,7 +47,11 @@ from quick_insight.application.text_labeling import (
     TextRecordFilter,
 )
 from quick_insight.application.text_profiling import TextCorpusProfiler
-from quick_insight.charts import ChartRecommendationEngine, build_preview_document
+from quick_insight.charts import (
+    ChartRecommendationEngine,
+    PlotlyChartDocument,
+    build_preview_document,
+)
 from quick_insight.domain.enums import AnalysisIntent
 from quick_insight.domain.models import (
     Category,
@@ -123,6 +128,9 @@ class MainWindow(QMainWindow):
         self._jobs_label = QLabel("后台任务：空闲")
         self._profile_generation = 0
         self._running_profile_job: QtJobRunner[DatasetProfile] | None = None
+        self._running_chart_job: QtJobRunner[PlotlyChartDocument] | None = None
+        self._chart_generation = 0
+        self._current_tabular_table_name: str | None = None
         self._current_profile: DatasetProfile | None = None
         self._current_recommendations: tuple[ChartRecommendation, ...] = ()
         self._current_text_corpus_id: str | None = None
@@ -546,6 +554,7 @@ class MainWindow(QMainWindow):
 
     def _show_import_result(self, result: TabularImportResult) -> None:
         handle = result.handle
+        self._current_tabular_table_name = result.table_name
         self._dataset_list.addItem(handle.display_name)
         self._preview_table.setModel(
             DuckDbTableModel(
@@ -569,6 +578,7 @@ class MainWindow(QMainWindow):
 
     def _show_text_corpus_result(self, result: TextCorpusImportResult) -> None:
         handle = result.handle
+        self._current_tabular_table_name = None
         self._dataset_list.addItem(handle.display_name)
         self._row_count_label.setText(f"行/记录：{handle.row_count}")
         self._query_time_label.setText("查询：文本语料已保存")
@@ -947,9 +957,12 @@ class MainWindow(QMainWindow):
         return card
 
     def _generate_recommendation_chart(self, recommendation: ChartRecommendation) -> None:
+        table_name = self._current_tabular_table_name
+        if table_name is not None:
+            self._start_chart_preparation_job(table_name, recommendation)
+            return
         document = build_preview_document(recommendation)
-        self._chart_view.render_document(document)
-        self._stack.setCurrentIndex(4)
+        self._render_chart_document(document)
         self._jobs_label.setText("后台任务：本地 Plotly 渲染器预览已载入")
         self.show_user_error(
             UserFacingError(
@@ -967,6 +980,77 @@ class MainWindow(QMainWindow):
                 ),
             )
         )
+
+    def _start_chart_preparation_job(
+        self,
+        table_name: str,
+        recommendation: ChartRecommendation,
+    ) -> None:
+        if self._running_chart_job is not None:
+            self._running_chart_job.cancel()
+        self._chart_generation += 1
+        generation = self._chart_generation
+        self._jobs_label.setText("后台任务：正在准备图表数据")
+        job = QtJobRunner(
+            "tabular_chart_preparation",
+            lambda context: TabularChartPreparationService(self._workspace).prepare(
+                table_name,
+                recommendation,
+                context=context,
+            ),
+        )
+        self._running_chart_job = job
+        job.signals.progress.connect(self._on_chart_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_chart_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _on_chart_progress(self, progress: JobProgress) -> None:
+        if self._is_disposed:
+            return
+        if progress.state is not JobState.RUNNING:
+            return
+        percent_text = "" if progress.percent is None else f"{progress.percent}% "
+        self._jobs_label.setText(f"后台任务：{percent_text}{progress.message_zh}")
+
+    def _on_chart_completed(
+        self,
+        expected_generation: int,
+        outcome: JobOutcome[PlotlyChartDocument],
+    ) -> None:
+        if self._is_disposed or expected_generation != self._chart_generation:
+            return
+        self._running_chart_job = None
+        if outcome.state is JobState.CANCELLED:
+            self._jobs_label.setText("后台任务：图表准备已取消")
+            return
+        if outcome.state is JobState.SUCCEEDED and outcome.value is not None:
+            self._render_chart_document(outcome.value)
+            self._jobs_label.setText("后台任务：图表数据已准备")
+            self._error_label.setText("无错误")
+            self.statusBar().showMessage("图表已使用真实数据准备并渲染", 5000)
+            return
+        self._jobs_label.setText("后台任务：图表准备失败")
+        if isinstance(outcome.error, UserFacingError):
+            self.show_user_error(outcome.error)
+            return
+        self.show_user_error(
+            UserFacingError(
+                code="CHART_PREPARATION_UNEXPECTED_FAILURE",
+                title_zh="图表准备失败",
+                message_zh="准备图表数据时发生未预期错误。",
+                next_action_zh="请保留源文件并复制技术细节，稍后重试或提交问题。",
+                technical_detail=repr(outcome.error),
+            )
+        )
+
+    def _render_chart_document(self, document: PlotlyChartDocument) -> None:
+        self._chart_view.render_document(document)
+        self._stack.setCurrentIndex(4)
 
     def _show_recommendation_future_error(
         self,
@@ -996,6 +1080,9 @@ class MainWindow(QMainWindow):
         if self._running_profile_job is not None:
             self._running_profile_job.cancel()
             self._running_profile_job = None
+        if self._running_chart_job is not None:
+            self._running_chart_job.cancel()
+            self._running_chart_job = None
         if self._text_label_model is not None:
             self._text_label_model.cancel_pending_queries()
             self._text_label_model = None

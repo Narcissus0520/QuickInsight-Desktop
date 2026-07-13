@@ -3,6 +3,7 @@ from quick_insight.charts.recommendation import ChartRecommendationEngine, Score
 from quick_insight.charts.rendering import (
     PlotlyChartDocument,
     build_plotly_html,
+    build_prepared_document,
     build_preview_document,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "PlotlyChartDocument",
     "ScoreBreakdown",
     "build_plotly_html",
+    "build_prepared_document",
     "build_preview_document",
 ]

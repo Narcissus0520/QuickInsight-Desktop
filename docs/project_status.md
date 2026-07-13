@@ -32,19 +32,22 @@ Date: 2026-07-13
 - Added deterministic chart recommendation rule scoring for tabular and text profiles, with score breakdowns, reasons, warnings, export strategy, and data-budget metadata.
 - Added workspace recommendation cards with analysis-intent selection, scores, field mappings, reasons, warnings, aggregation, data budgets, score breakdowns, and guarded future chart actions.
 - Added the first M4 chart workspace slice: `plotly==6.9.0`, offline Plotly HTML generation, a Qt WebEngine chart view, CSP/network-blocking chart profile, renderer preview documents, and recommendation-card generate actions that open the chart workspace with explicit preview warnings.
+- Added DuckDB-backed tabular chart preparation with `PreparedChartDataset` metadata, Top N plus Other category aggregation, time-window mean downsampling, deterministic scatter sampling, histogram bins, 2D density bins, categorical cross-tabs, and background chart preparation from recommendation cards.
 
 ## Remaining Work
 
-- Add real chart data preparation from DuckDB/profile outputs with data budgets, downsampling/binning/top-N strategies, and background jobs.
-- Add HTML/SVG/PNG/JSON export flows and stronger runtime validation for blocked external chart requests.
+- Add HTML/SVG/PNG/JSON export flows.
+- Add stronger runtime validation for blocked external chart requests.
+- Extend real data preparation to remaining chart families such as box plots, correlation heatmaps, and text-corpus chart specs.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
-- Chart rendering currently shows an explicit renderer preview, not a chart prepared from real dataset aggregates.
+- Real chart preparation currently covers tabular line/area, bar, histogram, scatter, density heatmap, donut, cross-tab heatmap, and stacked bar. Box plots, correlation heatmaps, and text-corpus chart specs still use guarded/future paths.
 - Chart export, transforms, and project persistence are not implemented yet.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
+- Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
 - Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
 
@@ -99,7 +102,9 @@ Date: 2026-07-13
 - Dependency refresh `.\scripts\setup_dev.ps1 -RefreshLock`: exit 0; installed and locked `plotly==6.9.0` with `narwhals==2.23.0`.
 - M4 local renderer slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 43 source files, pytest passed 63 tests on Python 3.13.14 / PySide6 6.11.1.
 - M4 local renderer slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M4 chart data preparation slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 44 source files, pytest passed 68 tests on Python 3.13.14 / PySide6 6.11.1.
+- M4 chart data preparation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Implement real chart data preparation with point budgets, Top N, and downsampling before sending data to Plotly/WebEngine.
+Implement HTML/SVG/PNG/JSON export for prepared Plotly chart documents.

@@ -51,7 +51,7 @@ M3 is accepted.
 M4 is active.
 
 - [x] Local Plotly/WebEngine renderer.
-- [ ] Downsampling/binning/top-N strategies.
+- [x] Downsampling/binning/top-N strategies.
 - [ ] HTML/SVG/PNG/JSON export.
 - [ ] External network blocking for chart views.
 

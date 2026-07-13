@@ -20,4 +20,5 @@
 - Added deterministic chart recommendation rule scoring with score breakdowns, reasons, warnings, data budgets, and tabular/text rule coverage.
 - Added workspace recommendation cards with analysis-intent selection, scores, field mappings, reasons, warnings, aggregation, data budgets, score breakdowns, and guarded future chart actions.
 - Added the first M4 chart workspace slice: pinned Plotly, offline Plotly HTML generation, a Qt WebEngine chart view, local renderer preview documents, and recommendation-card generate actions that open the guarded chart workspace.
-- Real chart data preparation, downsampling/binning/top-N strategies, export, transforms, advanced category governance, and project persistence remain future milestones.
+- Added DuckDB-backed tabular chart data preparation for Top N plus Other category aggregation, time-window downsampling, scatter uniform sampling, histogram bins, 2D density bins, and categorical cross-tab aggregation.
+- Chart export, transforms, advanced category governance, and project persistence remain future milestones.

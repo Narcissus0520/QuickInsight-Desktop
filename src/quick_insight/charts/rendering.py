@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.offline import get_plotlyjs
 
-from quick_insight.domain.models import ChartRecommendation, ChartSpec
+from quick_insight.domain.models import ChartRecommendation, ChartSpec, PreparedChartDataset
 
 
 @dataclass(frozen=True)
@@ -27,17 +27,7 @@ class PlotlyChartDocument:
 def build_preview_document(recommendation: ChartRecommendation) -> PlotlyChartDocument:
     figure = _preview_figure(recommendation.spec)
     title = f"渲染器预览：{_chart_title(recommendation.spec.chart_type)}"
-    figure.update_layout(
-        title=title,
-        template="plotly_white",
-        font={
-            "family": "Microsoft YaHei UI, Microsoft YaHei, Segoe UI, sans-serif",
-            "size": 13,
-        },
-        margin={"l": 48, "r": 24, "t": 64, "b": 48},
-        paper_bgcolor="#ffffff",
-        plot_bgcolor="#ffffff",
-    )
+    _apply_common_layout(figure, title)
     preparation = {
         "original_rows": recommendation.data_budget.get("original_rows", 0),
         "rendered_rows": _preview_rendered_rows(recommendation.spec.chart_type),
@@ -53,6 +43,31 @@ def build_preview_document(recommendation: ChartRecommendation) -> PlotlyChartDo
         warnings=(*recommendation.warnings, "chart_data_preparation_pending"),
         data_budget=dict(recommendation.data_budget),
         preparation=preparation,
+    )
+
+
+def build_prepared_document(
+    recommendation: ChartRecommendation,
+    prepared: PreparedChartDataset,
+) -> PlotlyChartDocument:
+    title = _chart_title(recommendation.spec.chart_type)
+    figure = _prepared_figure(recommendation.spec, prepared)
+    _apply_common_layout(figure, title)
+    data_budget = {
+        **recommendation.data_budget,
+        "original_rows": prepared.original_rows,
+        "rendered_rows": prepared.rendered_rows,
+        "method": prepared.method,
+        "approximate": prepared.approximate,
+    }
+    return PlotlyChartDocument(
+        title=title,
+        figure=plotly_figure_to_dict(figure),
+        config=default_plotly_config(),
+        chart_spec=recommendation.spec,
+        warnings=recommendation.warnings,
+        data_budget=data_budget,
+        preparation=prepared.metadata(),
     )
 
 
@@ -330,6 +345,204 @@ def _preview_figure(spec: ChartSpec) -> go.Figure:
         )
 
     return go.Figure(data=[go.Bar(x=["A", "B", "C"], y=[3, 5, 4])])
+
+
+def _prepared_figure(spec: ChartSpec, prepared: PreparedChartDataset) -> go.Figure:
+    chart_type = spec.chart_type
+    mappings = spec.mappings
+    if chart_type in {"line", "area"}:
+        x_values = _column_values(prepared, "x")
+        y_values = _column_values(prepared, "y")
+        figure = go.Figure(
+            data=[
+                go.Scatter(
+                    x=x_values,
+                    y=y_values,
+                    mode="lines+markers",
+                    fill="tozeroy" if chart_type == "area" else None,
+                    name=mappings.get("y", "value"),
+                    customdata=_optional_column_values(prepared, "source_count"),
+                    hovertemplate="%{x}<br>%{y}<extra></extra>",
+                )
+            ]
+        )
+        figure.update_xaxes(title_text=mappings.get("x", "x"))
+        figure.update_yaxes(title_text=mappings.get("y", "y"))
+        return figure
+
+    if chart_type == "bar":
+        x_values = _column_values(prepared, "category")
+        y_values = _column_values(prepared, "value")
+        figure = go.Figure(
+            data=[
+                go.Bar(
+                    x=x_values,
+                    y=y_values,
+                    customdata=_optional_column_values(prepared, "source_count"),
+                    hovertemplate="%{x}<br>%{y}<br>rows=%{customdata}<extra></extra>",
+                    marker_color="#2563eb",
+                )
+            ]
+        )
+        figure.update_xaxes(title_text=mappings.get("x", mappings.get("category", "category")))
+        figure.update_yaxes(title_text=mappings.get("y", mappings.get("value", "value")))
+        return figure
+
+    if chart_type == "donut":
+        return go.Figure(
+            data=[
+                go.Pie(
+                    labels=_column_values(prepared, "category"),
+                    values=_column_values(prepared, "source_count"),
+                    hole=0.45,
+                    textinfo="label+percent",
+                )
+            ]
+        )
+
+    if chart_type == "histogram":
+        labels = [
+            f"{_compact_number(row[0])} - {_compact_number(row[1])}"
+            for row in prepared.rows
+        ]
+        figure = go.Figure(
+            data=[
+                go.Bar(
+                    x=labels,
+                    y=_column_values(prepared, "source_count"),
+                    marker_color="#0f766e",
+                )
+            ]
+        )
+        figure.update_xaxes(title_text=mappings.get("x", "value"))
+        figure.update_yaxes(title_text="count")
+        return figure
+
+    if chart_type == "scatter":
+        scatter_class = go.Scattergl if prepared.rendered_rows > 10_000 else go.Scatter
+        figure = go.Figure(
+            data=[
+                scatter_class(
+                    x=_column_values(prepared, "x"),
+                    y=_column_values(prepared, "y"),
+                    mode="markers",
+                    marker={"size": 6, "color": "#2563eb", "opacity": 0.72},
+                )
+            ]
+        )
+        figure.update_xaxes(title_text=mappings.get("x", "x"))
+        figure.update_yaxes(title_text=mappings.get("y", "y"))
+        return figure
+
+    if chart_type in {
+        "density_heatmap",
+        "crosstab_heatmap",
+        "text_source_category_heatmap",
+        "text_category_keyword_heatmap",
+        "text_tag_cooccurrence_heatmap",
+    }:
+        return _xyz_heatmap(prepared, mappings)
+
+    if chart_type == "stacked_bar":
+        return _stacked_bar(prepared, mappings)
+
+    return _preview_figure(spec)
+
+
+def _apply_common_layout(figure: go.Figure, title: str) -> None:
+    figure.update_layout(
+        title=title,
+        template="plotly_white",
+        font={
+            "family": "Microsoft YaHei UI, Microsoft YaHei, Segoe UI, sans-serif",
+            "size": 13,
+        },
+        margin={"l": 48, "r": 24, "t": 64, "b": 48},
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
+    )
+
+
+def _column_values(prepared: PreparedChartDataset, column: str) -> list[Any]:
+    index = prepared.columns.index(column)
+    return [_plotly_value(row[index]) for row in prepared.rows]
+
+
+def _optional_column_values(prepared: PreparedChartDataset, column: str) -> list[Any] | None:
+    if column not in prepared.columns:
+        return None
+    return _column_values(prepared, column)
+
+
+def _xyz_heatmap(prepared: PreparedChartDataset, mappings: dict[str, str]) -> go.Figure:
+    x_values = _ordered_unique(_column_values(prepared, "x"))
+    y_values = _ordered_unique(_column_values(prepared, "y"))
+    counts: dict[tuple[Any, Any], float] = {}
+    x_index = prepared.columns.index("x")
+    y_index = prepared.columns.index("y")
+    count_index = prepared.columns.index("source_count")
+    for row in prepared.rows:
+        counts[(_plotly_value(row[x_index]), _plotly_value(row[y_index]))] = float(
+            row[count_index] or 0
+        )
+    z_values = [
+        [counts.get((x_value, y_value), 0.0) for x_value in x_values]
+        for y_value in y_values
+    ]
+    figure = go.Figure(
+        data=[
+            go.Heatmap(
+                x=x_values,
+                y=y_values,
+                z=z_values,
+                colorscale="Blues",
+                colorbar={"title": "count"},
+            )
+        ]
+    )
+    figure.update_xaxes(title_text=mappings.get("x", "x"))
+    figure.update_yaxes(title_text=mappings.get("y", "y"))
+    return figure
+
+
+def _stacked_bar(prepared: PreparedChartDataset, mappings: dict[str, str]) -> go.Figure:
+    x_values = _ordered_unique(_column_values(prepared, "x"))
+    color_values = _ordered_unique(_column_values(prepared, "y"))
+    x_index = prepared.columns.index("x")
+    color_index = prepared.columns.index("y")
+    count_index = prepared.columns.index("source_count")
+    counts: dict[tuple[Any, Any], float] = {}
+    for row in prepared.rows:
+        counts[(_plotly_value(row[x_index]), _plotly_value(row[color_index]))] = float(
+            row[count_index] or 0
+        )
+    figure = go.Figure()
+    for color_value in color_values:
+        figure.add_bar(
+            x=x_values,
+            y=[counts.get((x_value, color_value), 0.0) for x_value in x_values],
+            name=str(color_value),
+        )
+    figure.update_layout(barmode="stack")
+    figure.update_xaxes(title_text=mappings.get("x", "x"))
+    figure.update_yaxes(title_text="count")
+    return figure
+
+
+def _ordered_unique(values: list[Any]) -> list[Any]:
+    return list(dict.fromkeys(values))
+
+
+def _plotly_value(value: Any) -> Any:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _compact_number(value: object) -> str:
+    if isinstance(value, float):
+        return f"{value:.3g}"
+    return str(value)
 
 
 def _preview_rendered_rows(chart_type: str) -> int:
