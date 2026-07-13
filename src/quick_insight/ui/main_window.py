@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -27,10 +27,14 @@ from PySide6.QtWidgets import (
 from quick_insight import APP_NAME_ZH
 from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
+from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
+from quick_insight.application.profiling import TabularProfiler
+from quick_insight.domain.models import ColumnProfile, DatasetProfile
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
 from quick_insight.ui.dialogs import TabularImportDialog
+from quick_insight.ui.jobs import QtJobRunner
 from quick_insight.ui.models import DuckDbTableModel
 from quick_insight.ui.pages import WelcomePage
 from quick_insight.ui.themes import build_qss
@@ -62,15 +66,22 @@ class MainWindow(QMainWindow):
         self._dataset_list = QListWidget()
         self._preview_table = QTableView()
         self._preview_summary = QLabel("尚未导入数据。")
+        self._profile_summary = QLabel("尚未生成数据画像。")
+        self._profile_fields = QListWidget()
+        self._profile_findings = QListWidget()
         self._row_count_label = QLabel("行/记录：未加载")
         self._query_time_label = QLabel("查询：--")
         self._approximation_label = QLabel("近似：无")
         self._jobs_label = QLabel("后台任务：空闲")
+        self._profile_generation = 0
+        self._running_profile_job: QtJobRunner[DatasetProfile] | None = None
+        self._is_disposed = False
 
         self._configure_toolbar()
         self.setCentralWidget(self._build_workspace())
         self.statusBar().showMessage("准备就绪")
         self.apply_theme(settings.theme, persist=False)
+        self.destroyed.connect(self._on_destroyed)
 
     @property
     def current_theme(self) -> str:
@@ -171,7 +182,7 @@ class MainWindow(QMainWindow):
         welcome.file_dropped.connect(lambda path: self._open_tabular_import(Path(path)))
         self._stack.addWidget(welcome)
         self._stack.addWidget(self._build_preview_page())
-        self._stack.addWidget(self._placeholder_page("概览", "M2 将提供结构化数据画像和质量检查。"))
+        self._stack.addWidget(self._build_overview_page())
         self._stack.addWidget(self._placeholder_page("推荐", "M3 将提供可解释图表推荐。"))
         self._stack.addWidget(self._placeholder_page("图表", "M4 将提供本地 Plotly 图表工作区。"))
         self._stack.addWidget(self._placeholder_page("文本标注", "M2 将提供虚拟化文本标注工作区。"))
@@ -256,6 +267,33 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._preview_table, stretch=1)
         return page
 
+    def _build_overview_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("数据概览")
+        title.setObjectName("sectionTitle")
+        self._profile_summary.setObjectName("profileSummaryLabel")
+        self._profile_summary.setWordWrap(True)
+
+        fields_title = QLabel("字段画像")
+        fields_title.setObjectName("sectionTitle")
+        self._profile_fields.setObjectName("profileFieldsList")
+
+        findings_title = QLabel("质量发现")
+        findings_title.setObjectName("sectionTitle")
+        self._profile_findings.setObjectName("profileFindingsList")
+
+        layout.addWidget(title)
+        layout.addWidget(self._profile_summary)
+        layout.addWidget(fields_title)
+        layout.addWidget(self._profile_fields, stretch=2)
+        layout.addWidget(findings_title)
+        layout.addWidget(self._profile_findings, stretch=1)
+        return page
+
     def _handle_welcome_action(self, key: str) -> None:
         if key == "import_tabular":
             self._open_tabular_import()
@@ -320,3 +358,166 @@ class MainWindow(QMainWindow):
         self._jobs_label.setText("后台任务：空闲")
         self._stack.setCurrentIndex(1)
         self.statusBar().showMessage("导入完成", 5000)
+        self._start_profile_job(result)
+
+    def _on_destroyed(self) -> None:
+        self._is_disposed = True
+        self._profile_generation += 1
+        if self._running_profile_job is not None:
+            self._running_profile_job.cancel()
+            self._running_profile_job = None
+
+    def _start_profile_job(self, result: TabularImportResult) -> None:
+        if self._running_profile_job is not None:
+            self._running_profile_job.cancel()
+        self._profile_generation += 1
+        generation = self._profile_generation
+        handle = result.handle
+        table_name = result.table_name
+        import_options = dict(handle.import_options)
+        self._profile_summary.setText("正在生成数据画像和质量检查...")
+        self._profile_fields.clear()
+        self._profile_findings.clear()
+        self._jobs_label.setText("后台任务：正在生成画像")
+        job = QtJobRunner(
+            "tabular_profile",
+            lambda context: self._profile_table(
+                context,
+                dataset_id=handle.id,
+                table_name=table_name,
+                import_options=import_options,
+            ),
+        )
+        self._running_profile_job = job
+        job.signals.progress.connect(self._on_profile_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_profile_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _profile_table(
+        self,
+        context: JobContext,
+        *,
+        dataset_id: str,
+        table_name: str,
+        import_options: dict[str, object],
+    ) -> DatasetProfile:
+        context.progress(15, "正在扫描列统计和质量指标")
+        profile = TabularProfiler(self._workspace).profile_table(
+            dataset_id,
+            table_name,
+            import_options=import_options,
+        )
+        context.progress(90, "正在整理画像结果")
+        return profile
+
+    def _on_profile_progress(self, progress: JobProgress) -> None:
+        if self._is_disposed:
+            return
+        if not self._profile_widgets_available():
+            return
+        if progress.state is not JobState.RUNNING:
+            return
+        percent_text = "" if progress.percent is None else f"{progress.percent}% "
+        self._jobs_label.setText(f"后台任务：{percent_text}{progress.message_zh}")
+
+    def _on_profile_completed(
+        self,
+        expected_generation: int,
+        outcome: JobOutcome[DatasetProfile],
+    ) -> None:
+        if self._is_disposed:
+            return
+        if expected_generation != self._profile_generation:
+            return
+        if not self._profile_widgets_available():
+            return
+        self._running_profile_job = None
+        if outcome.state is JobState.CANCELLED:
+            self._jobs_label.setText("后台任务：画像已取消")
+            return
+        if outcome.state is JobState.SUCCEEDED and outcome.value is not None:
+            self._show_profile(outcome.value)
+            return
+        self._jobs_label.setText("后台任务：画像失败")
+        error = outcome.error
+        self.show_user_error(
+            UserFacingError(
+                code="PROFILE_UNEXPECTED_FAILURE",
+                title_zh="画像失败",
+                message_zh="生成数据画像时发生未预期错误。",
+                next_action_zh="请保留源文件并复制技术详情，稍后重试或提交问题。",
+                technical_detail=repr(error),
+            )
+        )
+
+    def _profile_widgets_available(self) -> bool:
+        try:
+            self._profile_summary.objectName()
+            self._profile_fields.objectName()
+            self._profile_findings.objectName()
+            self._jobs_label.objectName()
+            self._stack.objectName()
+        except RuntimeError:
+            self._is_disposed = True
+            self._profile_generation += 1
+            self._running_profile_job = None
+            return False
+        return True
+
+    def _show_profile(self, profile: DatasetProfile) -> None:
+        if not self._profile_widgets_available():
+            return
+        quality = profile.summary.get("quality")
+        quality_summary = quality if isinstance(quality, dict) else {}
+        column_count = profile.summary.get("column_count", len(profile.column_profiles))
+        duplicate_rows = quality_summary.get("duplicate_row_count", 0)
+        missing_values = quality_summary.get("total_missing_values", 0)
+        self._profile_summary.setText(
+            f"画像完成：{profile.row_count} 行，{column_count} 列；"
+            f"重复行 {duplicate_rows}；缺失值 {missing_values}。"
+        )
+        self._profile_fields.clear()
+        for column in profile.column_profiles:
+            self._profile_fields.addItem(_field_profile_text(column))
+        self._profile_findings.clear()
+        if profile.findings:
+            for finding in profile.findings:
+                self._profile_findings.addItem(finding.statement)
+        else:
+            self._profile_findings.addItem("未发现明显质量问题。")
+        self._approximation_label.setText("近似：是" if profile.approximate else "近似：无")
+        self._jobs_label.setText("后台任务：空闲")
+        self._stack.setCurrentIndex(2)
+        self.statusBar().showMessage("数据画像完成", 5000)
+
+
+def _field_profile_text(column: ColumnProfile) -> str:
+    distinct = "未知" if column.distinct_count is None else str(column.distinct_count)
+    warnings = "" if not column.warnings else f"；警告 {', '.join(column.warnings)}"
+    return (
+        f"{column.name} · {_semantic_type_text(column.semantic_type.value)} · "
+        f"缺失 {column.null_count} · 不同值 {distinct}{warnings}"
+    )
+
+
+def _semantic_type_text(value: str) -> str:
+    return {
+        "numeric": "数值",
+        "categorical": "类别",
+        "datetime": "时间",
+        "boolean": "布尔",
+        "text": "文本",
+        "long_text": "长文本",
+        "identifier": "标识符",
+        "geo_latitude": "纬度",
+        "geo_longitude": "经度",
+        "primary_category": "主类别",
+        "tag_list": "标签列表",
+        "source_reference": "来源",
+        "unknown": "未知",
+    }.get(value, value)

@@ -12,4 +12,5 @@
 - Moved DuckDB preview page reads into background jobs with cancellation and stale-result rejection.
 - Added direct malformed-file import UI coverage and closed M1 tabular import/virtual preview tasks.
 - Added the first M2 profiling slice: DuckDB-backed column statistics, deterministic semantic type inference, dataset/profile warnings, and tests.
+- Added tabular quality checks for duplicate rows, missing values, constants, mixed-type hints, datetime ranges, IQR outlier candidates, parse-failure status, quality findings, and a background GUI overview page.
 - Packaging, one-click analysis, charting, transforms, text workflow, and project persistence remain future milestones.

@@ -174,6 +174,8 @@ class TabularImportService:
         import_options = {
             **_preview_options(preview),
             "normalized_cache_path": str(normalized_cache),
+            "parse_failure_count": 0,
+            "parse_failure_method": "strict_import_aborts_on_parse_error",
         }
         handle = DatasetHandle(
             id=fingerprint[:16],

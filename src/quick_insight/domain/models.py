@@ -48,6 +48,7 @@ class DatasetProfile:
     method: str = "not_profiled"
     summary: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
+    findings: tuple[AnalysisFinding, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QLabel, QListWidget, QPushButton
 
 from quick_insight.application.importing import TabularImportService
 from quick_insight.infrastructure.paths import AppPaths
@@ -45,7 +45,7 @@ def test_theme_switching_updates_current_theme(qtbot) -> None:  # type: ignore[n
 
 def test_main_window_shows_imported_dataset(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
     source = tmp_path / "sales.csv"
-    source.write_text("name,amount\nalpha,1\n", encoding="utf-8")
+    source.write_text("name,amount\nalpha,1\nalpha,\nalpha,\n", encoding="utf-8")
     paths = AppPaths.under(tmp_path / "app").ensure()
     workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
     service = TabularImportService(workspace)
@@ -55,8 +55,15 @@ def test_main_window_shows_imported_dataset(qtbot, tmp_path) -> None:  # type: i
 
     window._show_import_result(result)
 
-    assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：1"
+    assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：3"
     assert window.findChild(QLabel, "approximationLabel").text() == "近似：无"
+    qtbot.waitUntil(
+        lambda: window.findChild(QLabel, "profileSummaryLabel").text().startswith("画像完成"),
+        timeout=3000,
+    )
+    assert "缺失值 2" in window.findChild(QLabel, "profileSummaryLabel").text()
+    assert window.findChild(QListWidget, "profileFieldsList").count() == 2
+    assert window.findChild(QListWidget, "profileFindingsList").count() >= 1
 
 
 def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
