@@ -45,5 +45,19 @@ record:
 - query/operation description;
 - rendered points for preview/chart-preparation steps.
 
-Full P0 performance acceptance still requires running the 100k/1m/5m profile on
-the target Windows machine and recording the resulting report path and findings.
+Latest local P0 run after CSV preview tuning:
+
+- Report: `build/benchmarks/p0-reports/benchmark-report-20260713T121823Z.json`
+  and `.md`.
+- Machine: Windows 10, CPython 3.13.14 x64, 6 logical CPUs.
+- 5m-row generated CSV source size: 309,343,518 bytes.
+- 5m-row preview: 16.183 ms and 157,986 bytes Python allocation peak.
+- 5m-row import plus normalized Parquet cache: 11,325.179 ms.
+- 5m-row paged preview fetch: 29.646 ms, 200 rendered rows.
+- 5m-row full DuckDB profile: 11,633.988 ms.
+- 5m-row chart preparation: 125.855 ms, 4 rendered points via `top_n_with_other`.
+
+The previous P0 run (`benchmark-report-20260713T121140Z.json`) showed 5m-row
+CSV preview at 1,306,727,599 bytes peak because `_read_sample` used
+`Path.read_text(... )[:8192]`. M6 changed CSV preview to read a bounded sample
+from the text stream; the 5m preview peak dropped to 157,986 bytes.

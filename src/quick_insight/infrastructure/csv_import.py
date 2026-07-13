@@ -119,7 +119,8 @@ def _read_sample(path: Path, override_encoding: str | None) -> tuple[str, str]:
     last_error: UnicodeDecodeError | None = None
     for encoding in encodings:
         try:
-            return path.read_text(encoding=encoding)[:8192], encoding
+            with path.open("r", encoding=encoding, newline="") as stream:
+                return stream.read(8192), encoding
         except UnicodeDecodeError as exc:
             last_error = exc
     raise UserFacingError(

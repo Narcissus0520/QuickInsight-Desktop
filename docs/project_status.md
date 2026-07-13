@@ -44,10 +44,10 @@ Date: 2026-07-13
 - Added processed-data export: the active imported or transformed tabular table can be exported to CSV or Parquet, active text corpora can be exported to JSONL or CSV with category/tag metadata, exports run in background jobs, temporary files are completed before final rename, and existing target files are refused by default.
 - Added safe text category governance: category rename/merge/delete operations run in DuckDB transactions, expose affected-record counts and descriptions in the text-labeling UI, preserve text content privacy in audit records, reject cross-corpus category changes when another corpus still references the category, and persist audit metadata in `text_category_audit`.
 - Added the first M6 performance hardening slice: deterministic benchmark CSV generation, a `quick_insight.benchmarks` CLI, `scripts/benchmark.ps1`, JSON/Markdown benchmark reports with machine/data/time/memory/query/rendered-point evidence, startup stale-temp cleanup, explicit normalized-cache cleanup policy, and tests for cleanup safety plus benchmark report structure.
+- Completed the M6 benchmark/cache pass on the target Windows development machine. The initial 100k/1m/5m run exposed unbounded CSV sample reading in preview (`Path.read_text(... )[:8192]`), then CSV preview was changed to read a bounded text-stream sample. The follow-up 5m-row run recorded 157,986 bytes peak Python allocation for preview instead of the prior 1,306,727,599 bytes, while import, paged preview, profiling, and chart preparation remained within current P0 expectations.
 
 ## Remaining Work
 
-- Run and record the representative M6 100k, 1m, and 5m row benchmark profile, then tune memory/cache behavior based on findings.
 - Continue M6 accessibility/DPI pass, security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
 - Continue committing once per completed milestone or coherent stage.
 
@@ -61,7 +61,7 @@ Date: 2026-07-13
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
 - Text category governance audit is persisted and covered by service/UI tests; a dedicated audit-history browser is not yet implemented.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
-- The benchmark harness is implemented and smoke-tested with small generated data; the full 100k/1m/5m benchmark profile has not yet been executed on the target machine.
+- P0 benchmark data under `build/benchmarks` is generated local evidence and intentionally ignored by Git.
 
 ## Latest Test And Build Results
 
@@ -152,7 +152,14 @@ Date: 2026-07-13
 - M6 benchmark/cache smoke `.\scripts\benchmark.ps1 -Rows 25 -OutputDir build\benchmarks\smoke-reports -WorkspaceDir build\benchmarks\smoke-workspace`: exit 0; wrote `build\benchmarks\smoke-reports\benchmark-report-20260713T120021Z.json` and `.md`.
 - M6 benchmark/cache `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 54 source files, pytest passed 96 tests on Python 3.13.14 / PySide6 6.11.1.
 - M6 benchmark/cache `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M6 P0 benchmark baseline `.\scripts\benchmark.ps1 -Profile P0 -OutputDir build\benchmarks\p0-reports -WorkspaceDir build\benchmarks\p0-workspace`: exit 0; wrote `benchmark-report-20260713T121140Z.json`; 5m preview peaked at 1,306,727,599 bytes because CSV sample reading loaded the full file before slicing.
+- M6 P0 benchmark tuned `.\scripts\benchmark.ps1 -Profile P0 -OutputDir build\benchmarks\p0-reports -WorkspaceDir build\benchmarks\p0-workspace-after-preview-fix`: exit 0; wrote `benchmark-report-20260713T121823Z.json`; 5m preview peaked at 157,986 bytes, 5m import plus normalized cache took 11,325.179 ms, 5m paged preview fetch took 29.646 ms for 200 rows, 5m full profile took 11,633.988 ms, and 5m chart preparation rendered 4 points in 125.855 ms.
+- M6 CSV preview tuning targeted `.\.venv\Scripts\python.exe -m ruff check src\quick_insight\infrastructure\csv_import.py tests\unit\test_csv_import.py src\quick_insight\application\benchmarks.py tests\performance\test_benchmarks.py`: exit 0; all checks passed.
+- M6 CSV preview tuning targeted `.\.venv\Scripts\python.exe -m mypy src\quick_insight`: exit 0; no issues found in 54 source files.
+- M6 CSV preview tuning targeted `.\.venv\Scripts\python.exe -m pytest tests\unit\test_csv_import.py tests\performance\test_benchmarks.py`: exit 0; 7 tests passed.
+- M6 CSV preview tuning `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 54 source files, pytest passed 97 tests on Python 3.13.14 / PySide6 6.11.1.
+- M6 CSV preview tuning `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Run `.\scripts\benchmark.ps1 -Profile P0`, record the 100k/1m/5m results, and tune memory/cache behavior based on findings.
+Continue M6 with accessibility and DPI pass.

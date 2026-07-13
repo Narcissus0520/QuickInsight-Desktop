@@ -75,11 +75,11 @@ M5 is accepted.
 
 M6 is active.
 
-- [ ] Benchmarks and memory/cache cleanup.
+- [x] Benchmarks and memory/cache cleanup.
   - [x] Deterministic benchmark harness, `scripts/benchmark.ps1`, and JSON/Markdown report output.
   - [x] Safe stale app-temp cleanup on startup plus explicit derived normalized-cache cleanup policy.
-  - [ ] Execute representative 100k, 1m, and 5m row benchmark pass and record results.
-  - [ ] Tune memory/cache behavior based on benchmark findings.
+  - [x] Execute representative 100k, 1m, and 5m row benchmark pass and record results.
+  - [x] Tune memory/cache behavior based on benchmark findings.
 - [ ] Accessibility and DPI pass.
 - [ ] Security review.
 - [ ] Packaged smoke tests, installer, portable ZIP, license notices, and release docs.
