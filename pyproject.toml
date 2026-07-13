@@ -32,6 +32,7 @@ dev = [
 quick-insight = "quick_insight.main:main"
 quick-insight-benchmark = "quick_insight.benchmarks:main"
 quick-insight-dpi-sweep = "quick_insight.dpi_sweep:main"
+quick-insight-security-review = "quick_insight.security_review:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

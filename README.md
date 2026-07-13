@@ -34,6 +34,7 @@ For M6 hardening evidence:
 ```powershell
 .\scripts\benchmark.ps1 -Profile P0
 .\scripts\dpi_sweep.ps1
+.\scripts\security_review.ps1
 ```
 
 If Python 3.13 x64 is missing, `setup_dev.ps1` fails with an actionable message instead of accepting another interpreter.

@@ -47,10 +47,11 @@ Date: 2026-07-13
 - Completed the M6 benchmark/cache pass on the target Windows development machine. The initial 100k/1m/5m run exposed unbounded CSV sample reading in preview (`Path.read_text(... )[:8192]`), then CSV preview was changed to read a bounded text-stream sample. The follow-up 5m-row run recorded 157,986 bytes peak Python allocation for preview instead of the prior 1,306,727,599 bytes, while import, paged preview, profiling, and chart preparation remained within current P0 expectations.
 - Added the first M6 accessibility/DPI baseline: reusable UI accessibility helpers, accessible names/descriptions/tooltips for primary toolbar, welcome, workspace, transform, text-labeling, status, and chart-export controls, DPI-friendly minimum hit-target sizes for primary actions, and UI smoke coverage for the baseline.
 - Completed the M6 automated high-DPI visual sweep. `scripts/dpi_sweep.ps1` now runs isolated Qt offscreen passes for 100%, 125%, 150%, and 200% scale factors, captures welcome/preview/overview/recommendations/chart/text-labeling screenshots, records widget geometry and button text-fit checks, and writes JSON/Markdown evidence. The sweep exposed high-content pages stretching the window above 1366 x 768, so the transform and text-labeling work areas now use scrollable panels; the follow-up report kept all four scale factors at a 1366 x 768 logical window.
+- Completed the M6 security review slice. `scripts/security_review.ps1` now runs an AST-based production-code review for dynamic execution, unsafe/network-client imports, shell subprocesses, direct ZIP extraction, and remote URL literals, then writes JSON/Markdown evidence. The current review scanned 59 production files and reported zero findings.
 
 ## Remaining Work
 
-- Continue M6 with security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
+- Continue M6 with packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
@@ -65,6 +66,7 @@ Date: 2026-07-13
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
 - P0 benchmark data under `build/benchmarks` is generated local evidence and intentionally ignored by Git.
 - DPI sweep screenshots and reports under `build/dpi-sweep` are generated local evidence and intentionally ignored by Git.
+- Security review reports under `build/security-review` are generated local evidence and intentionally ignored by Git.
 
 ## Latest Test And Build Results
 
@@ -173,7 +175,13 @@ Date: 2026-07-13
 - M6 DPI sweep `.\scripts\dpi_sweep.ps1 -OutputDir build\dpi-sweep\reports`: exit 0; wrote `build\dpi-sweep\reports\dpi-sweep-report-20260713T125058Z.json` and `.md`; Python JSON verification reported `passed=True`, scale factors 1.0/1.25/1.5/2.0 each passed with 6 screenshots, 182 checks, child exit 0, and logical window `1366 x 768`.
 - M6 DPI sweep `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 57 source files, pytest passed 101 tests on Python 3.13.14 / PySide6 6.11.1.
 - M6 DPI sweep `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M6 security review targeted `.\.venv\Scripts\python.exe -m ruff check src\quick_insight\application\security_review.py src\quick_insight\security_review.py tests\unit\test_security_review.py`: exit 0; all checks passed.
+- M6 security review targeted `.\.venv\Scripts\python.exe -m mypy src\quick_insight`: exit 0; no issues found in 59 source files.
+- M6 security review targeted `.\.venv\Scripts\python.exe -m pytest tests\unit\test_security_review.py -q`: exit 0; 2 tests passed.
+- M6 security review `.\scripts\security_review.ps1 -OutputDir build\security-review\reports`: exit 0; wrote `build\security-review\reports\security-review-20260713T130423Z.json` and `.md`; JSON verification reported `passed=True`, 59 production files scanned, and 0 findings.
+- M6 security review `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 59 source files, pytest passed 103 tests on Python 3.13.14 / PySide6 6.11.1.
+- M6 security review `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Continue M6 with the security review.
+Continue M6 with packaged smoke tests, installer/portable ZIP, license notices, and release documentation.

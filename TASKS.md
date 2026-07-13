@@ -85,5 +85,7 @@ M6 is active.
   - [x] DPI-friendly minimum hit-target baseline for primary actions and workflow buttons.
   - [x] Automated UI smoke coverage for accessible names/descriptions and hit-target minimums.
   - [x] Automated visual sweep at 100%, 125%, 150%, and 200% DPI.
-- [ ] Security review.
+- [x] Security review.
+  - [x] Automated AST-based production-code security review.
+  - [x] Security review report and documentation.
 - [ ] Packaged smoke tests, installer, portable ZIP, license notices, and release docs.
