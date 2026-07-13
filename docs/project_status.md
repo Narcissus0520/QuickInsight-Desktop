@@ -57,7 +57,9 @@ Date: 2026-07-13
 - `git push`: exit 0; pushed `5c700f5` to `origin/main`.
 - Background import slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 34 source files, pytest passed 24 tests on Python 3.13.14 / PySide6 6.11.1.
 - Background import slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- `git commit -m "feat: run imports in background job"`: exit 0; created the background import stage commit.
+- `git push`: exit 0; pushed the background import stage to `origin/main`.
 
 ## Next Action
 
-Commit the completed background import slice, then continue M1 with background paged query jobs, stale-result rejection, and broader import error-path UI coverage.
+Continue M1 with background paged query jobs, stale-result rejection, and broader import error-path UI coverage.
