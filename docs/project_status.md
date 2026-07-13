@@ -30,8 +30,8 @@ Date: 2026-07-13
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
-- Excel, Parquet, profiling, charting, transforms, and project persistence are not implemented yet.
-- CSV/TSV import currently executes synchronously after confirmation; background execution remains an M1 task.
+- Profiling, charting, transforms, and project persistence are not implemented yet.
+- Paged table reads still execute synchronously on demand; background query jobs remain an M1 task.
 
 ## Latest Test And Build Results
 
