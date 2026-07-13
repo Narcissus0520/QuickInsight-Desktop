@@ -1,0 +1,8 @@
+# Changelog
+
+## 0.0.0 - 2026-07-13
+
+- Initialized the M0 foundation for QuickInsight Desktop.
+- Added PySide6 bootstrap shell, theme tokens, welcome page, workspace frame, app paths/settings/logging, error model, job abstraction, deterministic samples, scripts, tests, and baseline documentation.
+- Fixed the development setup script for Windows PowerShell argument quoting and validated M0 on CPython 3.13.14 x64.
+- Packaging, import, analysis, charting, transforms, and project persistence remain future milestones.

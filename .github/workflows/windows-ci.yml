@@ -1,0 +1,26 @@
+name: Windows CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  m0-gates:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          architecture: "x64"
+      - name: Setup development environment
+        shell: pwsh
+        run: .\scripts\setup_dev.ps1
+      - name: Run tests
+        shell: pwsh
+        run: .\scripts\test.ps1
+      - name: Launch smoke test
+        shell: pwsh
+        run: .\scripts\run.ps1 -SmokeSeconds 2
