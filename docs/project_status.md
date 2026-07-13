@@ -43,10 +43,12 @@ Date: 2026-07-13
 - Added a user-facing source relocation dialog for missing or mismatched external source files. The dialog lists affected datasets, lets the user choose the moved original file, validates saved size and content sample evidence before updating the in-memory manifest, and keeps the relocation toolbar action disabled when no source issue remains.
 - Added processed-data export: the active imported or transformed tabular table can be exported to CSV or Parquet, active text corpora can be exported to JSONL or CSV with category/tag metadata, exports run in background jobs, temporary files are completed before final rename, and existing target files are refused by default.
 - Added safe text category governance: category rename/merge/delete operations run in DuckDB transactions, expose affected-record counts and descriptions in the text-labeling UI, preserve text content privacy in audit records, reject cross-corpus category changes when another corpus still references the category, and persist audit metadata in `text_category_audit`.
+- Added the first M6 performance hardening slice: deterministic benchmark CSV generation, a `quick_insight.benchmarks` CLI, `scripts/benchmark.ps1`, JSON/Markdown benchmark reports with machine/data/time/memory/query/rendered-point evidence, startup stale-temp cleanup, explicit normalized-cache cleanup policy, and tests for cleanup safety plus benchmark report structure.
 
 ## Remaining Work
 
-- Begin M6 benchmarks, memory/cache cleanup, accessibility/DPI pass, security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
+- Run and record the representative M6 100k, 1m, and 5m row benchmark profile, then tune memory/cache behavior based on findings.
+- Continue M6 accessibility/DPI pass, security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
@@ -59,6 +61,7 @@ Date: 2026-07-13
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
 - Text category governance audit is persisted and covered by service/UI tests; a dedicated audit-history browser is not yet implemented.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
+- The benchmark harness is implemented and smoke-tested with small generated data; the full 100k/1m/5m benchmark profile has not yet been executed on the target machine.
 
 ## Latest Test And Build Results
 
@@ -143,7 +146,13 @@ Date: 2026-07-13
 - M5 category governance UI stability targeted `.\.venv\Scripts\python.exe -m pytest tests\ui\test_main_window.py`: exit 0; 22 tests passed.
 - M5 category governance `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 51 source files, pytest passed 92 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 category governance `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M6 benchmark/cache targeted `.\.venv\Scripts\python.exe -m ruff check src\quick_insight\application\benchmarks.py src\quick_insight\benchmarks.py src\quick_insight\infrastructure\cache_cleanup.py src\quick_insight\bootstrap.py tests\unit\test_cache_cleanup.py tests\performance\test_benchmarks.py`: exit 0; all checks passed.
+- M6 benchmark/cache targeted `.\.venv\Scripts\python.exe -m mypy src\quick_insight`: exit 0; no issues found in 54 source files.
+- M6 benchmark/cache targeted `.\.venv\Scripts\python.exe -m pytest tests\performance\test_benchmarks.py tests\unit\test_cache_cleanup.py`: exit 0; 4 tests passed.
+- M6 benchmark/cache smoke `.\scripts\benchmark.ps1 -Rows 25 -OutputDir build\benchmarks\smoke-reports -WorkspaceDir build\benchmarks\smoke-workspace`: exit 0; wrote `build\benchmarks\smoke-reports\benchmark-report-20260713T120021Z.json` and `.md`.
+- M6 benchmark/cache `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 54 source files, pytest passed 96 tests on Python 3.13.14 / PySide6 6.11.1.
+- M6 benchmark/cache `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Begin M6 with benchmarks and memory/cache cleanup.
+Run `.\scripts\benchmark.ps1 -Profile P0`, record the 100k/1m/5m results, and tune memory/cache behavior based on findings.

@@ -30,6 +30,7 @@ dev = [
 
 [project.scripts]
 quick-insight = "quick_insight.main:main"
+quick-insight-benchmark = "quick_insight.benchmarks:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

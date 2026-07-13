@@ -9,6 +9,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from quick_insight import APP_NAME, APP_NAME_ZH, __version__
+from quick_insight.infrastructure.cache_cleanup import cleanup_app_cache
 from quick_insight.infrastructure.logging import configure_logging
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, load_settings
@@ -39,6 +40,15 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     paths = AppPaths.default().ensure()
     logger = configure_logging(paths.log_dir)
+    cleanup_report = cleanup_app_cache(paths)
+    logger.info(
+        "startup_cache_cleanup",
+        extra={
+            "operation": "startup_cleanup",
+            "removed_paths": cleanup_report.removed_count,
+            "removed_bytes": cleanup_report.removed_bytes,
+        },
+    )
     settings = _load_settings(paths)
     if args.theme is not None:
         settings = settings.with_theme(args.theme)

@@ -31,3 +31,4 @@
 - Added a user-facing source relocation dialog for missing or mismatched external source files; moved files are accepted only after saved size and content sample evidence match the project record.
 - Added processed-data export: current tabular/imported/transform-preview tables export to CSV or Parquet, current text corpora export to JSONL or CSV with category/tag metadata, exports run in background jobs, and existing target files are refused by default.
 - Added safe text category governance: transactional rename/merge/delete, category descriptions, affected-record counts, privacy-conscious audit records, and text-labeling UI controls.
+- Added the first M6 performance hardening slice: deterministic tabular benchmark generation/reporting, a `scripts/benchmark.ps1` runner, startup stale-temp cleanup, explicit normalized-cache cleanup policy, and tests for benchmark evidence plus cleanup safety.
