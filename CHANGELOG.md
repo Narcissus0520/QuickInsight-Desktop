@@ -16,4 +16,5 @@
 - Added one-click tabular analysis findings for time trends, numeric correlations, and category group differences, with reproducible DuckDB evidence and no causation claims.
 - Added text corpus entry/import preview, TXT/Markdown/JSONL splitting, category/tag/source defaults, and DuckDB persistence for text records, categories, and tags.
 - Added text corpus profiling and quality checks for category/tag/source counts, text lengths, duplicates, category conflicts, keyword matches, surface token frequencies, and tag co-occurrence.
-- Packaging, charting, transforms, text labeling workspace, and project persistence remain future milestones.
+- Added a virtualized text labeling workspace with paged `QTableView` records, search/category filters, inline category creation, detail editing, save-next, undo, and bulk category/tag updates.
+- Packaging, charting, transforms, advanced category governance, and project persistence remain future milestones.

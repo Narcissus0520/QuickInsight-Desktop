@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QLabel, QListWidget, QPushButton
+from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QListWidget, QPushButton, QTableView
 
 from quick_insight.application.importing import TabularImportService
 from quick_insight.application.text_corpus import TextCorpusService
@@ -159,6 +159,64 @@ def test_main_window_shows_text_corpus_result(qtbot, tmp_path) -> None:  # type:
     assert "未分类 2" in window.findChild(QLabel, "profileSummaryLabel").text()
     assert window.findChild(QListWidget, "profileFieldsList").count() == 4
     assert window.findChild(QListWidget, "profileFindingsList").count() >= 1
+    qtbot.waitUntil(
+        lambda: window._text_label_model is not None
+        and window._text_label_model.pending_page_count() == 0,
+        timeout=3000,
+    )
+
+
+def test_text_labeling_workspace_edits_record_and_filters(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TextCorpusService(workspace)
+    result = service.import_preview(
+        service.preview_text(
+            "第一条安装反馈\n第二条告警记录",
+            display_name="文本语料",
+        )
+    )
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+
+    window._show_text_corpus_result(result)
+    table = window.findChild(QTableView, "textLabelTable")
+    model = table.model()
+    model.data(model.index(0, 0))
+    qtbot.waitUntil(lambda: model.cached_page_count() == 1, timeout=3000)
+    table.selectRow(0)
+    qtbot.waitUntil(
+        lambda: window.findChild(QLineEdit, "textRecordTagsEdit").isEnabled(),
+        timeout=3000,
+    )
+    qtbot.waitUntil(
+        lambda: window._text_record_content_edit.toPlainText()
+        in {"第一条安装反馈", "第二条告警记录"},
+        timeout=3000,
+    )
+    edited_content = window._text_record_content_edit.toPlainText()
+
+    window.findChild(QComboBox, "textRecordCategoryCombo").setEditText("体验")
+    window.findChild(QLineEdit, "textRecordTagsEdit").setText("安装,新手")
+    window.findChild(QPushButton, "textSaveNextButton").click()
+    qtbot.waitUntil(lambda: table.currentIndex().row() == 1, timeout=3000)
+
+    stored = {
+        record.content: record
+        for record in workspace.list_text_records(result.handle.cache_key or "")
+    }
+    categories = {category.id: category.name for category in workspace.list_categories()}
+    assert categories[stored[edited_content].primary_category_id or ""] == "体验"
+    assert stored[edited_content].tags == ("安装", "新手")
+
+    window.findChild(QLineEdit, "textSearchEdit").setText("告警")
+    qtbot.waitUntil(lambda: table.model().rowCount() == 1, timeout=3000)
+    filtered_model = table.model()
+    filtered_model.data(filtered_model.index(0, 0))
+    qtbot.waitUntil(lambda: filtered_model.cached_page_count() == 1, timeout=3000)
+    assert "告警" in filtered_model.data(filtered_model.index(0, 0))
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=3000)
+    qtbot.waitUntil(lambda: filtered_model.pending_page_count() == 0, timeout=3000)
 
 
 def test_import_dialog_shows_bad_csv_encoding_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

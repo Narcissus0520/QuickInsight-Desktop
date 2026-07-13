@@ -28,7 +28,7 @@ M1 is accepted.
 
 ## M2 - Profiling, One-Click Analysis, And Text Corpus Workflow
 
-M2 is active.
+M2 is accepted.
 
 - [x] Basic tabular semantic type inference and DuckDB-backed profile service.
 - [x] Tabular quality checks, duplicate detection, parse-failure reporting, and profile UI integration.
@@ -36,9 +36,11 @@ M2 is active.
 - [x] One-click analysis findings for trends, correlations, and group differences.
 - [x] Text entry/import/splitting and category/tag persistence.
 - [x] Text corpus profiling and quality checks.
-- [ ] Virtualized text labeling workspace.
+- [x] Virtualized text labeling workspace.
 
 ## M3 - Explainable Chart Recommendation
+
+M3 is next.
 
 - [ ] Deterministic rule scoring.
 - [ ] Recommendation cards with reasons, warnings, and data budget.
@@ -56,6 +58,7 @@ M2 is active.
 - [ ] No-code transforms and aggregation.
 - [ ] `.qiproject` save/reopen with source relocation.
 - [ ] Processed data and text export.
+- [ ] Safe category rename/merge/delete audit for text labels.
 
 ## M6 - Performance, Hardening, And Release
 

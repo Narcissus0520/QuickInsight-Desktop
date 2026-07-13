@@ -5,8 +5,8 @@ Date: 2026-07-13
 ## Current Version And Milestone
 
 - Version: `0.0.0`
-- Milestone: M2 profiling, one-click analysis, and text corpus workflow
-- Status: M1 tabular import and virtual preview accepted; M2 is active.
+- Milestone: M3 explainable chart recommendation is next
+- Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted.
 
 ## Completed Work
 
@@ -28,18 +28,19 @@ Date: 2026-07-13
 - Added one-click tabular analysis findings for time trends, numeric correlations, and category group differences; every finding records DuckDB evidence and explicitly avoids causation claims.
 - Added text corpus entry/import preview, TXT/Markdown/JSONL splitting, category/tag/source defaults, and DuckDB persistence for `TextRecord`, `Category`, and tag data.
 - Added text corpus profiling and quality checks for category/tag/source counts, text-length distribution, empty/duplicate/extreme-length checks, category conflicts, near-duplicate category names, keyword matches, surface token frequencies, and tag co-occurrence.
+- Added a virtualized text labeling workspace backed by a paged `QTableView`, with search/category filters, inline category creation, full record detail editing, save-next, undo restore, and bulk category/tag updates.
 
 ## Remaining Work
 
-- Build the virtualized text labeling workspace.
+- Start M3 deterministic, explainable chart recommendation rules and recommendation cards.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
 - Charting, transforms, and project persistence are not implemented yet.
-- Profile UI currently shows quality and one-click analysis findings only; chart recommendations and analysis intent flows are still future milestones.
-- Text corpus data can be entered/imported, persisted, and profiled, but the virtualized labeling workspace is not implemented yet.
+- Profile UI currently shows quality and one-click analysis findings only; chart recommendations and analysis intent flows start in M3.
+- Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
 
 ## Latest Test And Build Results
@@ -84,7 +85,9 @@ Date: 2026-07-13
 - M2 text corpus import/persistence slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M2 text corpus profiling slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 39 source files, pytest passed 49 tests on Python 3.13.14 / PySide6 6.11.1.
 - M2 text corpus profiling slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M2 virtualized text labeling workspace slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 40 source files, pytest passed 52 tests on Python 3.13.14 / PySide6 6.11.1.
+- M2 virtualized text labeling workspace slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Build the virtualized text labeling workspace.
+Begin M3 with deterministic chart recommendation scoring and tests.

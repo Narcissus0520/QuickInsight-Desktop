@@ -3,9 +3,11 @@ from __future__ import annotations
 import threading
 from typing import Any
 
+from quick_insight.application.text_labeling import TextLabelingService, TextRecordFilter
+from quick_insight.domain.models import Category, TextRecord
 from quick_insight.infrastructure.csv_import import preview_delimited_file
 from quick_insight.infrastructure.workspace import WorkspaceColumn, WorkspaceDatabase
-from quick_insight.ui.models import DuckDbTableModel
+from quick_insight.ui.models import DuckDbTableModel, TextRecordTableModel
 
 
 def test_duckdb_table_model_loads_pages_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -50,6 +52,38 @@ def test_duckdb_table_model_rejects_stale_cancelled_page(qtbot) -> None:  # type
     qtbot.waitUntil(lambda: model.pending_page_count() == 0, timeout=3000)
 
     assert model.cached_page_count() == 0
+
+
+def test_text_record_table_model_loads_pages_and_filters(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    category = Category(id="cat_feedback", name="反馈")
+    workspace.save_text_corpus(
+        "corpus",
+        (
+            TextRecord(id="r-1", content="第一条安装反馈", primary_category_id=category.id),
+            TextRecord(id="r-2", content="第二条告警记录"),
+        ),
+        (category,),
+    )
+    service = TextLabelingService(workspace)
+    model = TextRecordTableModel(
+        service=service,
+        corpus_id="corpus",
+        categories=service.list_categories(),
+        page_size=1,
+    )
+
+    assert model.rowCount() == 2
+    assert model.data(model.index(1, 0)) == "加载中..."
+    qtbot.waitUntil(lambda: model.cached_page_count() == 1, timeout=3000)
+    assert model.data(model.index(1, 0)) == "第二条告警记录"
+
+    model.set_filter(TextRecordFilter(search_text="安装"))
+
+    assert model.rowCount() == 1
+    assert model.data(model.index(0, 0)) == "加载中..."
+    qtbot.waitUntil(lambda: model.cached_page_count() == 1, timeout=3000)
+    assert model.data(model.index(0, 1)) == "反馈"
 
 
 class BlockingWorkspace:

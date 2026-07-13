@@ -257,6 +257,149 @@ class WorkspaceDatabase:
             tags_by_record.setdefault(str(record_id), []).append(str(tag))
         return tuple(_text_record_from_row(row, tags_by_record) for row in rows)
 
+    def text_record_count_filtered(
+        self,
+        corpus_id: str,
+        *,
+        search_text: str = "",
+        category_id: str | None = None,
+        uncategorized_only: bool = False,
+    ) -> int:
+        where_sql, parameters = _text_record_filter_sql(
+            corpus_id,
+            search_text=search_text,
+            category_id=category_id,
+            uncategorized_only=uncategorized_only,
+        )
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            row = connection.execute(
+                f"SELECT COUNT(*) FROM text_records WHERE {where_sql}",
+                parameters,
+            ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    def fetch_text_records_page(
+        self,
+        corpus_id: str,
+        *,
+        limit: int,
+        offset: int,
+        search_text: str = "",
+        category_id: str | None = None,
+        uncategorized_only: bool = False,
+    ) -> tuple[TextRecord, ...]:
+        where_sql, parameters = _text_record_filter_sql(
+            corpus_id,
+            search_text=search_text,
+            category_id=category_id,
+            uncategorized_only=uncategorized_only,
+        )
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            rows = connection.execute(
+                f"""
+                SELECT
+                    id, content, primary_category_id, source, location, speaker,
+                    record_time, note, custom_fields_json, created_at, updated_at,
+                    schema_version
+                FROM text_records
+                WHERE {where_sql}
+                ORDER BY created_at ASC, id ASC
+                LIMIT ? OFFSET ?
+                """,
+                [*parameters, limit, offset],
+            ).fetchall()
+            record_ids = [str(row[0]) for row in rows]
+            tag_rows = _fetch_tags_for_records(connection, record_ids)
+        tags_by_record: dict[str, list[str]] = {}
+        for record_id, tag in tag_rows:
+            tags_by_record.setdefault(str(record_id), []).append(str(tag))
+        return tuple(_text_record_from_row(row, tags_by_record) for row in rows)
+
+    def upsert_category(self, category: Category) -> None:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            connection.execute(
+                "DELETE FROM text_categories WHERE id = ? OR name = ?",
+                [category.id, category.name],
+            )
+            connection.execute(
+                """
+                INSERT INTO text_categories (
+                    id, name, description, color, created_at, updated_at, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    category.id,
+                    category.name,
+                    category.description,
+                    category.color,
+                    category.created_at,
+                    category.updated_at,
+                    category.schema_version,
+                ],
+            )
+
+    def update_text_record(self, corpus_id: str, record: TextRecord) -> None:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                existing = connection.execute(
+                    "SELECT id FROM text_records WHERE id = ? AND corpus_id = ?",
+                    [record.id, corpus_id],
+                ).fetchone()
+                if existing is None:
+                    raise ValueError(f"Text record does not exist in corpus: {record.id}")
+                connection.execute(
+                    """
+                    UPDATE text_records
+                    SET
+                        content = ?,
+                        primary_category_id = ?,
+                        source = ?,
+                        location = ?,
+                        speaker = ?,
+                        record_time = ?,
+                        note = ?,
+                        custom_fields_json = ?,
+                        updated_at = ?,
+                        schema_version = ?
+                    WHERE id = ? AND corpus_id = ?
+                    """,
+                    [
+                        record.content,
+                        record.primary_category_id,
+                        record.source,
+                        record.location,
+                        record.speaker,
+                        record.record_time,
+                        record.note,
+                        json.dumps(record.custom_fields, ensure_ascii=False),
+                        record.updated_at,
+                        record.schema_version,
+                        record.id,
+                        corpus_id,
+                    ],
+                )
+                connection.execute("DELETE FROM text_record_tags WHERE record_id = ?", [record.id])
+                if record.tags:
+                    connection.executemany(
+                        """
+                        INSERT OR REPLACE INTO text_record_tags (record_id, tag, tag_order)
+                        VALUES (?, ?, ?)
+                        """,
+                        [
+                            (record.id, tag, tag_index)
+                            for tag_index, tag in enumerate(record.tags)
+                        ],
+                    )
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+
     def list_categories(self) -> tuple[Category, ...]:
         with self._connect() as connection:
             self._ensure_text_tables(connection)
@@ -755,6 +898,57 @@ def _is_numeric_type(data_type: str) -> bool:
 def _is_datetime_type(data_type: str) -> bool:
     normalized = data_type.upper()
     return "DATE" in normalized or "TIME" in normalized
+
+
+def _text_record_filter_sql(
+    corpus_id: str,
+    *,
+    search_text: str,
+    category_id: str | None,
+    uncategorized_only: bool,
+) -> tuple[str, list[object]]:
+    clauses = ["corpus_id = ?"]
+    parameters: list[object] = [corpus_id]
+    normalized_search = search_text.strip().casefold()
+    if normalized_search:
+        pattern = f"%{normalized_search}%"
+        clauses.append(
+            """
+            (
+                LOWER(content) LIKE ?
+                OR LOWER(COALESCE(source, '')) LIKE ?
+                OR LOWER(COALESCE(location, '')) LIKE ?
+                OR LOWER(COALESCE(speaker, '')) LIKE ?
+                OR LOWER(note) LIKE ?
+            )
+            """
+        )
+        parameters.extend([pattern, pattern, pattern, pattern, pattern])
+    if uncategorized_only:
+        clauses.append("primary_category_id IS NULL")
+    elif category_id:
+        clauses.append("primary_category_id = ?")
+        parameters.append(category_id)
+    return " AND ".join(clauses), parameters
+
+
+def _fetch_tags_for_records(
+    connection: duckdb.DuckDBPyConnection,
+    record_ids: list[str],
+) -> tuple[tuple[Any, ...], ...]:
+    if not record_ids:
+        return ()
+    placeholders = ", ".join("?" for _ in record_ids)
+    rows = connection.execute(
+        f"""
+        SELECT record_id, tag
+        FROM text_record_tags
+        WHERE record_id IN ({placeholders})
+        ORDER BY record_id ASC, tag_order ASC, tag ASC
+        """,
+        record_ids,
+    ).fetchall()
+    return tuple(tuple(row) for row in rows)
 
 
 def _text_record_from_row(row: tuple[Any, ...], tags_by_record: dict[str, list[str]]) -> TextRecord:
