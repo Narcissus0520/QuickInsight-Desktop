@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPushButton,
     QTableView,
+    QWidget,
 )
 
 from quick_insight.application.data_export import DataExportFormat
@@ -94,6 +95,81 @@ def test_theme_switching_updates_current_theme(qtbot) -> None:  # type: ignore[n
     window.apply_theme("dark", persist=False)
 
     assert window.current_theme == "dark"
+
+
+def test_primary_controls_have_accessibility_metadata(  # type: ignore[no-untyped-def]
+    qtbot,
+) -> None:
+    window = MainWindow(settings=AppSettings())
+    qtbot.addWidget(window)
+
+    for object_name in (
+        "themeSelector",
+        "projectOpenButton",
+        "projectSaveButton",
+        "projectSaveAsButton",
+        "projectRelocateSourcesButton",
+        "exportTabularDataButton",
+        "exportTextDataButton",
+        "settingsButton",
+        "welcomeAction_import_tabular",
+        "welcomeAction_create_text_corpus",
+        "welcomeAction_open_recent",
+        "welcomeAction_open_sample",
+        "workspaceStack",
+        "navigationList",
+        "datasetList",
+        "duckDbPreviewTable",
+        "analysisIntentSelector",
+        "transformOperationCombo",
+        "transformPreviewButton",
+        "textSearchEdit",
+        "textCategoryFilter",
+        "textLabelTable",
+        "textRecordContentEdit",
+        "textSaveNextButton",
+        "chartResetButton",
+        "chartExportHtmlButton",
+        "chartExportSvgButton",
+        "chartExportPngButton",
+        "chartExportJsonButton",
+        "rowCountLabel",
+        "errorLabel",
+    ):
+        widget = window.findChild(QWidget, object_name)
+        assert widget is not None, object_name
+        assert widget.accessibleName(), object_name
+        assert widget.accessibleDescription() or object_name.endswith("Label"), object_name
+
+
+def test_primary_actions_keep_dpi_friendly_hit_targets(  # type: ignore[no-untyped-def]
+    qtbot,
+) -> None:
+    window = MainWindow(settings=AppSettings())
+    qtbot.addWidget(window)
+
+    for object_name in (
+        "projectOpenButton",
+        "projectSaveButton",
+        "projectSaveAsButton",
+        "exportTabularDataButton",
+        "exportTextDataButton",
+        "welcomeAction_import_tabular",
+        "welcomeAction_create_text_corpus",
+        "welcomeAction_open_recent",
+        "welcomeAction_open_sample",
+        "transformAddStepButton",
+        "transformPreviewButton",
+        "textSaveButton",
+        "textSaveNextButton",
+        "textBulkApplyButton",
+        "chartResetButton",
+        "chartExportHtmlButton",
+    ):
+        button = window.findChild(QPushButton, object_name)
+        assert button is not None, object_name
+        assert button.minimumHeight() >= 32, object_name
+        assert button.minimumWidth() >= 96, object_name
 
 
 def test_chart_request_interceptor_blocks_external_and_file_urls(qtbot) -> None:  # type: ignore[no-untyped-def]

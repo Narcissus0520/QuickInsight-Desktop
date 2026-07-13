@@ -24,6 +24,7 @@ from quick_insight.charts.exporting import (
 )
 from quick_insight.charts.rendering import PlotlyChartDocument, build_plotly_html
 from quick_insight.charts.security import ChartRequestDecision, classify_chart_request
+from quick_insight.ui.accessibility import describe_widget, ensure_hit_target
 
 ExportCallback = Callable[[ChartExportResult | Exception], None]
 
@@ -45,6 +46,11 @@ class OfflineChartWebView(QWebEngineView):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("offlineChartWebView")
+        describe_widget(
+            self,
+            name="离线图表网页视图",
+            description="只加载本地 Plotly 图表 HTML，并阻止外部网络和本地文件请求。",
+        )
         self._profile = QWebEngineProfile(self)
         self._interceptor = OfflineChartRequestInterceptor(self._profile)
         self._interceptor.blocked.connect(self.external_request_blocked.emit)
@@ -61,21 +67,36 @@ class PlotlyChartView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("plotlyChartView")
+        describe_widget(
+            self,
+            name="图表工作区",
+            description="预览本地图表并导出 HTML、SVG、PNG 或 JSON。",
+        )
         self._last_html = ""
         self._document: PlotlyChartDocument | None = None
         self._pending_export: tuple[ChartExportFormat, Path, ExportCallback, int] | None = None
         self._blocked_requests: list[ChartRequestDecision] = []
         self._title_label = QLabel("尚未生成图表")
         self._title_label.setObjectName("chartTitleLabel")
+        describe_widget(self._title_label, name="图表标题")
         self._status_label = QLabel("从推荐卡片点击生成后，将在这里载入本地 Plotly 图表。")
         self._status_label.setObjectName("chartStatusLabel")
+        describe_widget(self._status_label, name="图表状态")
         self._status_label.setWordWrap(True)
         self._warning_label = QLabel("图表数据准备、导出和编辑将在 M4 后续切片接入。")
         self._warning_label.setObjectName("chartWarningLabel")
+        describe_widget(self._warning_label, name="图表警告")
         self._warning_label.setWordWrap(True)
         self._web_view = OfflineChartWebView(self)
         self._reset_button = QPushButton("重置视图")
         self._reset_button.setObjectName("chartResetButton")
+        describe_widget(
+            self._reset_button,
+            name="重置图表视图",
+            description="把图表缩放、平移和选择状态恢复到初始视图。",
+            tooltip="重置图表缩放和平移。",
+        )
+        ensure_hit_target(self._reset_button, min_width=96)
         self._reset_button.clicked.connect(self.reset_view)
         self._export_html_button = QPushButton("导出 HTML")
         self._export_html_button.setObjectName("chartExportHtmlButton")
@@ -91,6 +112,13 @@ class PlotlyChartView(QWidget):
             (ChartExportFormat.PNG, self._export_png_button),
             (ChartExportFormat.JSON, self._export_json_button),
         ):
+            describe_widget(
+                button,
+                name=f"导出 {export_format.value.upper()}",
+                description=f"把当前图表导出为 {export_format.value.upper()} 文件。",
+                tooltip=f"导出当前图表为 {export_format.value.upper()}。",
+            )
+            ensure_hit_target(button, min_width=96)
             button.clicked.connect(
                 lambda _checked=False, fmt=export_format: self.export_requested.emit(fmt.value)
             )

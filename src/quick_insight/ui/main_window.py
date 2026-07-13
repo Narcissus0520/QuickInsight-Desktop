@@ -89,6 +89,11 @@ from quick_insight.domain.models import (
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
 from quick_insight.infrastructure.workspace import WorkspaceColumn, WorkspaceDatabase
+from quick_insight.ui.accessibility import (
+    DEFAULT_ACTION_MIN_WIDTH,
+    describe_widget,
+    ensure_hit_target,
+)
 from quick_insight.ui.chart_view import PlotlyChartView
 from quick_insight.ui.dialogs import SourceRelocationDialog, TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.jobs import QtJobRunner
@@ -210,8 +215,15 @@ class MainWindow(QMainWindow):
         self._text_undo_stack: list[TextRecord] = []
         self._is_disposed = False
 
+        describe_widget(
+            self,
+            name="QuickInsight Desktop 主窗口",
+            description="本地数据分析应用主窗口。",
+        )
+        self._stack.setObjectName("workspaceStack")
         self._configure_toolbar()
         self.setCentralWidget(self._build_workspace())
+        self._configure_accessibility_baseline()
         self._chart_view.export_requested.connect(self._on_chart_export_requested)
         self.statusBar().showMessage("准备就绪")
         self.apply_theme(settings.theme, persist=False)
@@ -238,55 +250,250 @@ class MainWindow(QMainWindow):
 
     def _configure_toolbar(self) -> None:
         toolbar = QToolBar("主工具栏")
+        describe_widget(toolbar, name="主工具栏", description="项目、主题、源文件和导出操作。")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        toolbar.addWidget(QLabel("主题"))
+        theme_label = QLabel("主题")
+        describe_widget(theme_label, name="主题标签")
+        toolbar.addWidget(theme_label)
         self._theme_selector.setObjectName("themeSelector")
         self._theme_selector.addItem("浅色", "light")
         self._theme_selector.addItem("深色", "dark")
         self._theme_selector.currentIndexChanged.connect(self._on_theme_selected)
+        describe_widget(
+            self._theme_selector,
+            name="主题选择",
+            description="在浅色和深色主题之间切换。",
+            tooltip="切换浅色或深色主题。",
+        )
+        ensure_hit_target(self._theme_selector, min_width=104)
         toolbar.addWidget(self._theme_selector)
 
         open_project_button = QPushButton("打开项目")
         open_project_button.setObjectName("projectOpenButton")
+        describe_widget(
+            open_project_button,
+            name="打开项目",
+            description="打开本地保存的 .qiproject 项目。",
+            tooltip="打开本地 .qiproject 项目。",
+        )
+        ensure_hit_target(open_project_button, min_width=DEFAULT_ACTION_MIN_WIDTH)
         open_project_button.clicked.connect(self._open_project_from_dialog)
         toolbar.addWidget(open_project_button)
 
         save_project_button = QPushButton("保存项目")
         save_project_button.setObjectName("projectSaveButton")
+        describe_widget(
+            save_project_button,
+            name="保存项目",
+            description="保存当前项目到已有 .qiproject 文件。",
+            tooltip="保存当前项目。",
+        )
+        ensure_hit_target(save_project_button, min_width=DEFAULT_ACTION_MIN_WIDTH)
         save_project_button.clicked.connect(self._save_project)
         toolbar.addWidget(save_project_button)
 
         save_as_project_button = QPushButton("另存项目")
         save_as_project_button.setObjectName("projectSaveAsButton")
+        describe_widget(
+            save_as_project_button,
+            name="另存项目",
+            description="把当前项目保存为新的 .qiproject 文件。",
+            tooltip="另存为新的 .qiproject 项目。",
+        )
+        ensure_hit_target(save_as_project_button, min_width=DEFAULT_ACTION_MIN_WIDTH)
         save_as_project_button.clicked.connect(self._save_project_as)
         toolbar.addWidget(save_as_project_button)
 
         self._source_relocation_button.setObjectName("projectRelocateSourcesButton")
         self._source_relocation_button.setEnabled(False)
-        self._source_relocation_button.setToolTip("打开项目后如源文件缺失或不匹配，可在这里重新定位。")
+        describe_widget(
+            self._source_relocation_button,
+            name="重定位源文件",
+            description="项目源文件缺失或不匹配时，选择新的源文件路径并重新校验。",
+            tooltip="打开项目后如源文件缺失或不匹配，可在这里重新定位。",
+        )
+        ensure_hit_target(self._source_relocation_button, min_width=128)
         self._source_relocation_button.clicked.connect(self._open_source_relocation_dialog)
         toolbar.addWidget(self._source_relocation_button)
 
         self._export_tabular_button.setObjectName("exportTabularDataButton")
         self._export_tabular_button.setEnabled(False)
-        self._export_tabular_button.setToolTip("导出当前表格或转换预览结果。")
+        describe_widget(
+            self._export_tabular_button,
+            name="导出表格",
+            description="把当前表格或转换预览结果导出为新文件。",
+            tooltip="导出当前表格或转换预览结果。",
+        )
+        ensure_hit_target(self._export_tabular_button, min_width=DEFAULT_ACTION_MIN_WIDTH)
         self._export_tabular_button.clicked.connect(self._export_current_tabular_data)
         toolbar.addWidget(self._export_tabular_button)
 
         self._export_text_button.setObjectName("exportTextDataButton")
         self._export_text_button.setEnabled(False)
-        self._export_text_button.setToolTip("导出当前文本语料及人工分类/标签。")
+        describe_widget(
+            self._export_text_button,
+            name="导出文本",
+            description="把当前文本语料、分类和标签导出为新文件。",
+            tooltip="导出当前文本语料及人工分类/标签。",
+        )
+        ensure_hit_target(self._export_text_button, min_width=DEFAULT_ACTION_MIN_WIDTH)
         self._export_text_button.clicked.connect(self._export_current_text_data)
         toolbar.addWidget(self._export_text_button)
 
         help_button = QPushButton("设置")
         help_button.setObjectName("settingsButton")
+        describe_widget(
+            help_button,
+            name="设置",
+            description="打开应用设置。当前为后续里程碑占位入口。",
+            tooltip="设置将在后续里程碑接入。",
+        )
+        ensure_hit_target(help_button, min_width=DEFAULT_ACTION_MIN_WIDTH)
         help_button.clicked.connect(
             lambda: self._show_future_error("settings", "设置将在后续里程碑完善")
         )
         toolbar.addWidget(help_button)
+
+    def _configure_accessibility_baseline(self) -> None:
+        describe_widget(
+            self._stack,
+            name="中央工作区",
+            description="在欢迎、预览、概览、推荐、图表和文本标注页面之间切换。",
+        )
+        describe_widget(
+            self._dataset_list,
+            name="数据集列表",
+            description="显示当前项目中已导入的表格和文本语料。",
+        )
+        ensure_hit_target(self._dataset_list)
+        navigation_list = self.findChild(QListWidget, "navigationList")
+        if navigation_list is not None:
+            describe_widget(
+                navigation_list,
+                name="工作区导航",
+                description="切换欢迎、预览、概览、推荐、图表和文本标注页面。",
+            )
+            ensure_hit_target(navigation_list)
+        describe_widget(
+            self._preview_table,
+            name="表格预览",
+            description="使用分页模型显示当前表格数据预览。",
+        )
+        describe_widget(
+            self._profile_fields,
+            name="字段画像列表",
+            description="显示字段类型、缺失值、不同值数量和质量提示。",
+        )
+        describe_widget(
+            self._profile_findings,
+            name="分析发现列表",
+            description="显示可复现计算得到的数据质量和分析发现。",
+        )
+        describe_widget(
+            self._intent_selector,
+            name="分析目标选择",
+            description="选择自动分析、趋势、比较、分布、关系、占比、异常或相关性目标。",
+            tooltip="选择图表推荐的分析目标。",
+        )
+        ensure_hit_target(self._intent_selector, min_width=180)
+        self._configure_transform_accessibility()
+        self._configure_text_labeling_accessibility()
+        self._configure_status_accessibility()
+
+    def _configure_transform_accessibility(self) -> None:
+        for widget, name, description in (
+            (
+                self._transform_operation_combo,
+                "转换操作",
+                "选择筛选、排序、去重、缺失值处理、类型转换或分组聚合。",
+            ),
+            (self._transform_column_combo, "转换字段", "选择本次转换使用的主字段。"),
+            (self._transform_extra_column_combo, "转换目标字段", "选择辅助字段或聚合目标字段。"),
+            (self._transform_filter_join_combo, "筛选组合方式", "选择多条件筛选时使用并且或或者。"),
+            (self._transform_filter_operator_combo, "筛选条件", "选择筛选比较方式。"),
+            (self._transform_direction_combo, "排序方向", "选择升序或降序。"),
+            (self._transform_type_combo, "目标类型", "选择安全类型转换的目标数据类型。"),
+            (self._transform_aggregation_combo, "聚合方式", "选择分组聚合的计算方式。"),
+            (self._transform_value_edit, "转换输入值", "输入筛选值、填充值或输出字段名。"),
+            (self._transform_alias_edit, "输出字段名", "输入转换或聚合后的输出字段名称。"),
+        ):
+            describe_widget(widget, name=name, description=description)
+            ensure_hit_target(widget)
+        describe_widget(
+            self._transform_field_list,
+            name="转换字段清单",
+            description="为选择字段、去重、缺失值处理、转换或聚合选择字段。",
+        )
+        describe_widget(
+            self._transform_step_list,
+            name="转换步骤清单",
+            description="显示将要按顺序预览执行的非破坏性转换步骤。",
+        )
+        for button, name, description in (
+            (self._transform_add_button, "添加转换步骤", "把当前转换设置加入步骤清单。"),
+            (self._transform_remove_button, "移除转换步骤", "移除步骤清单中的选中步骤。"),
+            (self._transform_clear_button, "清空转换步骤", "清空尚未应用的转换步骤。"),
+            (
+                self._transform_preview_button,
+                "生成转换预览",
+                "在新表中预览转换结果，不覆盖源数据。",
+            ),
+            (self._transform_cancel_button, "取消转换预览", "取消正在运行的转换预览任务。"),
+        ):
+            describe_widget(button, name=name, description=description, tooltip=description)
+            ensure_hit_target(button, min_width=DEFAULT_ACTION_MIN_WIDTH)
+
+    def _configure_text_labeling_accessibility(self) -> None:
+        for widget, name, description in (
+            (self._text_search_edit, "文本搜索", "按文本内容、来源、地点、说话人或备注筛选记录。"),
+            (self._text_filter_category, "文本类别筛选", "按主类别查看文本记录。"),
+            (self._category_manage_combo, "管理的类别", "选择要重命名、合并或删除的类别。"),
+            (self._category_target_combo, "目标类别", "选择合并或替换到的目标类别。"),
+            (self._category_name_edit, "类别名称", "输入新的类别名称。"),
+            (self._category_description_edit, "类别说明", "输入类别说明。"),
+            (self._category_note_edit, "类别操作备注", "记录本次类别管理操作的备注。"),
+            (self._text_record_content_edit, "文本内容", "编辑当前文本记录的正文。"),
+            (self._text_record_category_combo, "记录主类别", "选择或输入当前记录的一个主类别。"),
+            (self._text_record_tags_edit, "记录标签", "输入当前记录的标签，多个标签用逗号分隔。"),
+            (self._text_record_source_edit, "记录来源", "输入当前记录来源。"),
+            (self._text_record_location_edit, "记录位置", "输入当前记录位置或页码等线索。"),
+            (self._text_record_speaker_edit, "记录说话人", "输入当前记录说话人。"),
+            (self._text_record_note_edit, "记录备注", "输入当前记录备注。"),
+        ):
+            describe_widget(widget, name=name, description=description)
+            ensure_hit_target(widget)
+        describe_widget(
+            self._text_label_table,
+            name="文本记录表",
+            description="分页显示文本记录，并支持选择记录后编辑分类、标签和元数据。",
+        )
+        for button, name, description in (
+            (self._category_rename_button, "重命名类别", "安全重命名选中的文本类别。"),
+            (self._category_merge_button, "合并类别", "把选中类别合并到目标类别。"),
+            (self._category_delete_button, "删除类别", "删除选中类别并按确认策略处理记录。"),
+            (self._text_save_button, "保存记录", "保存当前文本记录编辑。"),
+            (self._text_save_next_button, "保存并下一条", "保存当前文本记录并切换到下一条。"),
+            (self._text_undo_button, "撤销上次编辑", "撤销最近一次文本记录编辑。"),
+            (
+                self._text_bulk_apply_button,
+                "批量应用",
+                "把当前分类或标签批量应用到选中的文本记录。",
+            ),
+        ):
+            describe_widget(button, name=name, description=description, tooltip=description)
+            ensure_hit_target(button, min_width=DEFAULT_ACTION_MIN_WIDTH)
+
+    def _configure_status_accessibility(self) -> None:
+        for label, name, description in (
+            (self._row_count_label, "行数和记录数状态", "显示当前数据集行数或文本记录数。"),
+            (self._query_time_label, "查询状态", "显示当前查询或数据保存状态。"),
+            (self._approximation_label, "近似状态", "显示当前画像或图表是否使用近似计算。"),
+            (self._jobs_label, "后台任务状态", "显示导入、画像、图表、转换、项目或导出任务状态。"),
+            (self._error_label, "错误状态", "显示最近一次用户可见错误或成功提示。"),
+        ):
+            describe_widget(label, name=name, description=description)
 
     def _build_workspace(self) -> QWidget:
         root = QWidget()

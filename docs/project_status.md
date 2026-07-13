@@ -45,10 +45,11 @@ Date: 2026-07-13
 - Added safe text category governance: category rename/merge/delete operations run in DuckDB transactions, expose affected-record counts and descriptions in the text-labeling UI, preserve text content privacy in audit records, reject cross-corpus category changes when another corpus still references the category, and persist audit metadata in `text_category_audit`.
 - Added the first M6 performance hardening slice: deterministic benchmark CSV generation, a `quick_insight.benchmarks` CLI, `scripts/benchmark.ps1`, JSON/Markdown benchmark reports with machine/data/time/memory/query/rendered-point evidence, startup stale-temp cleanup, explicit normalized-cache cleanup policy, and tests for cleanup safety plus benchmark report structure.
 - Completed the M6 benchmark/cache pass on the target Windows development machine. The initial 100k/1m/5m run exposed unbounded CSV sample reading in preview (`Path.read_text(... )[:8192]`), then CSV preview was changed to read a bounded text-stream sample. The follow-up 5m-row run recorded 157,986 bytes peak Python allocation for preview instead of the prior 1,306,727,599 bytes, while import, paged preview, profiling, and chart preparation remained within current P0 expectations.
+- Added the first M6 accessibility/DPI baseline: reusable UI accessibility helpers, accessible names/descriptions/tooltips for primary toolbar, welcome, workspace, transform, text-labeling, status, and chart-export controls, DPI-friendly minimum hit-target sizes for primary actions, and UI smoke coverage for the baseline.
 
 ## Remaining Work
 
-- Continue M6 accessibility/DPI pass, security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
+- Continue M6 with a high-DPI visual sweep at 100%, 125%, 150%, and 200%, then security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
@@ -62,6 +63,7 @@ Date: 2026-07-13
 - Text category governance audit is persisted and covered by service/UI tests; a dedicated audit-history browser is not yet implemented.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
 - P0 benchmark data under `build/benchmarks` is generated local evidence and intentionally ignored by Git.
+- Accessibility metadata and minimum hit-target checks are automated, but the high-DPI visual sweep across 100%, 125%, 150%, and 200% remains to be completed before closing the full M6 accessibility/DPI pass.
 
 ## Latest Test And Build Results
 
@@ -159,7 +161,12 @@ Date: 2026-07-13
 - M6 CSV preview tuning targeted `.\.venv\Scripts\python.exe -m pytest tests\unit\test_csv_import.py tests\performance\test_benchmarks.py`: exit 0; 7 tests passed.
 - M6 CSV preview tuning `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 54 source files, pytest passed 97 tests on Python 3.13.14 / PySide6 6.11.1.
 - M6 CSV preview tuning `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M6 accessibility/DPI baseline targeted `.\.venv\Scripts\python.exe -m ruff check src\quick_insight\ui\accessibility.py src\quick_insight\ui\main_window.py src\quick_insight\ui\pages\welcome.py src\quick_insight\ui\chart_view.py tests\ui\test_main_window.py`: exit 0; all checks passed.
+- M6 accessibility/DPI baseline targeted `.\.venv\Scripts\python.exe -m mypy src\quick_insight`: exit 0; no issues found in 55 source files.
+- M6 accessibility/DPI baseline targeted `.\.venv\Scripts\python.exe -m pytest tests\ui\test_main_window.py -q`: exit 0; 24 tests passed.
+- M6 accessibility/DPI baseline `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 55 source files, pytest passed 99 tests on Python 3.13.14 / PySide6 6.11.1.
+- M6 accessibility/DPI baseline `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Continue M6 with accessibility and DPI pass.
+Continue M6 with the high-DPI visual sweep for 100%, 125%, 150%, and 200% scale.
