@@ -28,4 +28,5 @@
 - Added a right-panel no-code transform UI for tabular datasets with field selection/rename, filters, sorting, deduplication, missing-value handling, type conversion, group aggregation, lossy-operation confirmation, background preview, cancellation, and non-destructive preview table activation.
 - Added the first `.qiproject` persistence foundation: versioned ZIP project packages with `manifest.json` and `project.duckdb`, atomic save/open, safe archive path and size checks, source-file evidence validation, and guarded source relocation.
 - Added main-window project open/save/save-as actions that run in background jobs, track tabular/text/derived transform datasets in the project manifest, restore DuckDB-backed previews and text labeling state after reopen, and surface source-reference warnings.
-- User-facing source relocation dialogs, advanced category governance, and processed export remain future milestones.
+- Added a user-facing source relocation dialog for missing or mismatched external source files; moved files are accepted only after saved size and content sample evidence match the project record.
+- Advanced category governance and processed export remain future milestones.

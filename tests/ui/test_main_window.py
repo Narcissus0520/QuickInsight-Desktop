@@ -6,6 +6,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialogButtonBox,
     QFrame,
     QLabel,
     QLineEdit,
@@ -15,6 +16,12 @@ from PySide6.QtWidgets import (
 )
 
 from quick_insight.application.importing import TabularImportService
+from quick_insight.application.project import (
+    ProjectDatasetEntry,
+    ProjectManifest,
+    ProjectPersistenceService,
+    validate_source_references,
+)
 from quick_insight.application.text_corpus import TextCorpusService
 from quick_insight.charts import ChartExportFormat, ChartExportResult
 from quick_insight.charts.security import classify_chart_request
@@ -23,7 +30,7 @@ from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
 from quick_insight.ui.chart_view import OfflineChartRequestInterceptor, PlotlyChartView
-from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
+from quick_insight.ui.dialogs import SourceRelocationDialog, TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.main_window import MainWindow
 
 
@@ -271,7 +278,57 @@ def test_main_window_open_project_reports_missing_source(
     qtbot.waitUntil(lambda: reopened._running_profile_job is None, timeout=6000)
 
     assert "源文件需要处理" in reopened.findChild(QLabel, "errorLabel").text()
+    assert reopened.findChild(QPushButton, "projectRelocateSourcesButton").isEnabled() is True
     assert reopened._workspace.row_count(result.table_name) == 1
+
+
+def test_source_relocation_dialog_validates_moved_source(
+    qtbot,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("region,amount\nNorth,10\n", encoding="utf-8")
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    result = service.import_csv(service.preview_csv(source))
+    manifest = ProjectManifest.create(
+        "重定位 UI 测试",
+        (
+            ProjectDatasetEntry.from_handle(
+                result.handle,
+                table_name=result.table_name,
+            ),
+        ),
+    )
+    project_path = tmp_path / "relocate-ui.qiproject"
+    ProjectPersistenceService(workspace).save_project(project_path, manifest)
+    moved_source = tmp_path / "moved" / "sales.csv"
+    moved_source.parent.mkdir()
+    source.rename(moved_source)
+    opened = ProjectPersistenceService(WorkspaceDatabase(tmp_path / "unused.duckdb")).open_project(
+        project_path,
+        tmp_path / "reopened.duckdb",
+    )
+    dialog = SourceRelocationDialog(
+        manifest=opened.manifest,
+        statuses=opened.source_statuses,
+    )
+    qtbot.addWidget(dialog)
+
+    assert dialog.findChild(QListWidget, "sourceRelocationIssueList").count() == 1
+    dialog.findChild(QLineEdit, "sourceRelocationPathEdit").setText(str(moved_source))
+    dialog.findChild(QPushButton, "sourceRelocationApplyButton").click()
+
+    assert dialog.findChild(QListWidget, "sourceRelocationIssueList").count() == 0
+    assert "重定位完成" in dialog.findChild(QLabel, "sourceRelocationStatusLabel").text()
+    buttons = dialog.findChild(QDialogButtonBox, "sourceRelocationButtons")
+    assert buttons.button(QDialogButtonBox.StandardButton.Ok).isEnabled() is True
+    buttons.button(QDialogButtonBox.StandardButton.Ok).click()
+
+    assert dialog.result_manifest is not None
+    relocated = dialog.result_manifest.datasets[0]
+    assert relocated.handle.source_path == moved_source.resolve()
+    assert validate_source_references(dialog.result_manifest)[0].status == "current"
 
 
 def test_main_window_shows_one_click_analysis_findings(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

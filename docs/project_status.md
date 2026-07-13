@@ -40,10 +40,10 @@ Date: 2026-07-13
 - Completed the M5 no-code transform UI slice: the right-panel transform page now creates safe `TransformStep` objects for field selection/rename, filters, sorting, deduplication, missing-value drop/fill, safe type conversion, and group aggregation; lossy operations require confirmation, preview runs in a cancellable background job, and successful previews activate a new local DuckDB table without mutating the source table.
 - Added the first `.qiproject` persistence foundation: versioned project manifests, atomic ZIP packages containing `manifest.json` and `project.duckdb`, safe archive path/size checks, workspace restore, source-file evidence validation, and guarded source relocation.
 - Added main-window project open/save/save-as actions: project operations run in background jobs, imported tabular/text datasets and derived transform preview tables are tracked as project entries, reopened projects restore DuckDB-backed table previews or text labeling state, and missing/mismatched source files are surfaced as user-visible warnings.
+- Added a user-facing source relocation dialog for missing or mismatched external source files. The dialog lists affected datasets, lets the user choose the moved original file, validates saved size and content sample evidence before updating the in-memory manifest, and keeps the relocation toolbar action disabled when no source issue remains.
 
 ## Remaining Work
 
-- Add a user-facing source relocation dialog for missing or mismatched source files.
 - Add processed data and text export.
 - Add safe category rename/merge/delete audit for text labels.
 - Continue committing once per completed milestone or coherent stage.
@@ -53,7 +53,7 @@ Date: 2026-07-13
 - Full packaging is intentionally deferred to M6.
 - SVG/PNG export requires a loaded desktop `QWebEngineView`; offscreen automated tests cover HTML/JSON export and the `toImage` bridge script rather than executing browser image capture.
 - Transform history is persisted for derived transform preview tables; full operation-history editing remains a later hardening task.
-- Project open reports missing/mismatched external sources, but the user-facing relocation dialog is not connected yet.
+- Source relocation updates the currently opened project manifest after evidence validation; users must still save the project to persist the updated source path into the `.qiproject` file.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
 - Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
@@ -126,7 +126,12 @@ Date: 2026-07-13
 - M5 `.qiproject` persistence foundation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M5 main-window project save/open slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 49 source files, pytest passed 85 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 main-window project save/open slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M5 source relocation dialog targeted `ruff check src\quick_insight\ui\dialogs\source_relocation_dialog.py src\quick_insight\ui\main_window.py tests\ui\test_main_window.py`: exit 0; all checks passed.
+- M5 source relocation dialog targeted `mypy src\quick_insight`: exit 0; no issues found in 50 source files.
+- M5 source relocation dialog targeted `pytest tests\integration\test_project_persistence.py tests\ui\test_main_window.py`: exit 0; 23 tests passed.
+- M5 source relocation dialog `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 50 source files, pytest passed 86 tests on Python 3.13.14 / PySide6 6.11.1.
+- M5 source relocation dialog `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Add a user-facing source relocation dialog for missing or mismatched source files.
+Add processed tabular-data export and text-data export.

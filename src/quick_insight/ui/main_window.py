@@ -52,6 +52,7 @@ from quick_insight.application.project import (
     ProjectPersistenceService,
     ProjectSaveResult,
     SourceReferenceStatus,
+    validate_source_references,
 )
 from quick_insight.application.text_corpus import TextCorpusImportResult, TextCorpusService
 from quick_insight.application.text_labeling import (
@@ -83,7 +84,7 @@ from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
 from quick_insight.infrastructure.workspace import WorkspaceColumn, WorkspaceDatabase
 from quick_insight.ui.chart_view import PlotlyChartView
-from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
+from quick_insight.ui.dialogs import SourceRelocationDialog, TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.jobs import QtJobRunner
 from quick_insight.ui.models import DuckDbTableModel, TextRecordTableModel
 from quick_insight.ui.pages import WelcomePage
@@ -146,6 +147,7 @@ class MainWindow(QMainWindow):
         self._transform_clear_button = QPushButton("清空步骤")
         self._transform_preview_button = QPushButton("生成预览表")
         self._transform_cancel_button = QPushButton("取消预览")
+        self._source_relocation_button = QPushButton("重定位源文件")
         self._text_label_table = QTableView()
         self._text_label_status = QLabel("尚未加载文本语料。")
         self._text_search_edit = QLineEdit()
@@ -181,6 +183,7 @@ class MainWindow(QMainWindow):
         self._project_dataset_entries: list[ProjectDatasetEntry] = []
         self._current_project_manifest: ProjectManifest | None = None
         self._current_project_path: Path | None = None
+        self._source_reference_statuses: tuple[SourceReferenceStatus, ...] = ()
         self._transform_step_objects: list[TransformStep] = []
         self._text_label_model: TextRecordTableModel | None = None
         self._text_categories: tuple[Category, ...] = ()
@@ -240,6 +243,12 @@ class MainWindow(QMainWindow):
         save_as_project_button.setObjectName("projectSaveAsButton")
         save_as_project_button.clicked.connect(self._save_project_as)
         toolbar.addWidget(save_as_project_button)
+
+        self._source_relocation_button.setObjectName("projectRelocateSourcesButton")
+        self._source_relocation_button.setEnabled(False)
+        self._source_relocation_button.setToolTip("打开项目后如源文件缺失或不匹配，可在这里重新定位。")
+        self._source_relocation_button.clicked.connect(self._open_source_relocation_dialog)
+        toolbar.addWidget(self._source_relocation_button)
 
         help_button = QPushButton("设置")
         help_button.setObjectName("settingsButton")
@@ -1439,8 +1448,14 @@ class MainWindow(QMainWindow):
         self._current_project_path = result.path
         self._current_project_manifest = result.manifest
         self._project_dataset_entries = list(result.manifest.datasets)
+        self._set_source_reference_statuses(validate_source_references(result.manifest))
         self._jobs_label.setText("后台任务：项目已保存")
-        self._error_label.setText(f"项目已保存：{result.path}")
+        if _has_relocatable_source_issues(self._source_reference_statuses):
+            self._error_label.setText(
+                f"项目已保存，但仍有源文件需要处理：{result.path}"
+            )
+        else:
+            self._error_label.setText(f"项目已保存：{result.path}")
         self.statusBar().showMessage("项目保存完成", 5000)
 
     def _on_project_opened(self, result: ProjectOpenResult) -> None:
@@ -1450,9 +1465,75 @@ class MainWindow(QMainWindow):
         self._project_dataset_entries = list(result.manifest.datasets)
         self._restore_project_dataset_list()
         self._restore_first_project_dataset()
+        self._set_source_reference_statuses(result.source_statuses)
         self._jobs_label.setText("后台任务：项目已打开")
         self._error_label.setText(_project_source_status_text(result.source_statuses))
         self.statusBar().showMessage("项目打开完成", 5000)
+
+    def _set_source_reference_statuses(
+        self,
+        statuses: tuple[SourceReferenceStatus, ...],
+    ) -> None:
+        self._source_reference_statuses = statuses
+        has_issues = _has_relocatable_source_issues(statuses)
+        self._source_relocation_button.setEnabled(
+            has_issues and self._current_project_manifest is not None
+        )
+        if has_issues:
+            self._source_relocation_button.setToolTip(
+                "有源文件缺失或不匹配。点击后选择移动后的原始文件并校验。"
+            )
+        else:
+            self._source_relocation_button.setToolTip("当前项目没有需要重定位的源文件。")
+
+    def _open_source_relocation_dialog(self) -> None:
+        if self._current_project_manifest is None:
+            self.show_user_error(
+                UserFacingError(
+                    code="PROJECT_RELOCATION_NO_PROJECT",
+                    title_zh="没有可重定位的项目",
+                    message_zh="请先打开或保存一个项目。",
+                    next_action_zh="打开 .qiproject 项目后再处理源文件位置。",
+                )
+            )
+            return
+        statuses = validate_source_references(self._current_project_manifest)
+        self._set_source_reference_statuses(statuses)
+        if not _has_relocatable_source_issues(statuses):
+            self._error_label.setText("当前项目没有缺失或不匹配的源文件。")
+            return
+        dialog = SourceRelocationDialog(
+            manifest=self._current_project_manifest,
+            statuses=statuses,
+            parent=self,
+        )
+        if dialog.exec() != SourceRelocationDialog.DialogCode.Accepted:
+            return
+        if dialog.result_manifest is None:
+            return
+        self._apply_source_relocation_result(
+            dialog.result_manifest,
+            dialog.result_statuses,
+        )
+
+    def _apply_source_relocation_result(
+        self,
+        manifest: ProjectManifest,
+        statuses: tuple[SourceReferenceStatus, ...],
+    ) -> None:
+        self._current_project_manifest = manifest
+        self._project_dataset_entries = list(manifest.datasets)
+        self._restore_project_dataset_list()
+        self._set_source_reference_statuses(statuses)
+        if _has_relocatable_source_issues(statuses):
+            self._error_label.setText(
+                "已应用部分源文件重定位，但仍有源文件需要处理。请继续重定位或重新导入。"
+            )
+        else:
+            self._error_label.setText(
+                "源文件重定位完成并通过校验。请保存项目以写入 .qiproject 文件。"
+            )
+        self.statusBar().showMessage("源文件重定位已应用到当前项目", 5000)
 
     def _set_workspace(self, workspace: WorkspaceDatabase) -> None:
         self._workspace = workspace
@@ -2533,6 +2614,10 @@ def _project_source_status_text(statuses: tuple[SourceReferenceStatus, ...]) -> 
     if counts.get("metadata_changed"):
         return "项目已打开：部分源文件内容采样匹配但元数据变化，建议确认后重新保存。"
     return "项目已打开：源文件引用校验通过。"
+
+
+def _has_relocatable_source_issues(statuses: tuple[SourceReferenceStatus, ...]) -> bool:
+    return any(status.status in {"missing", "mismatch"} for status in statuses)
 
 
 def _coerce_transform_value(
