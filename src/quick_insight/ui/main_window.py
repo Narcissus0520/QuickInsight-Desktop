@@ -312,10 +312,10 @@ class MainWindow(QMainWindow):
         )
         self._preview_summary.setText(
             f"{handle.display_name}：{handle.row_count} 行，{handle.column_count} 列。"
-            "数据已写入本地 DuckDB 工作区，预览按页读取。"
+            "数据已写入本地 DuckDB 工作区，预览后台按页读取。"
         )
         self._row_count_label.setText(f"行/记录：{handle.row_count}")
-        self._query_time_label.setText("查询：分页读取")
+        self._query_time_label.setText("查询：后台分页")
         self._approximation_label.setText("近似：无")
         self._jobs_label.setText("后台任务：空闲")
         self._stack.setCurrentIndex(1)

@@ -23,7 +23,8 @@ M1 is active.
 - [x] Normalized Parquet cache and source invalidation.
 - [x] Safe paged table model backed by DuckDB.
 - [x] Background import jobs with progress, cancellation request, and clear errors.
-- [ ] Background paged query jobs with stale-result rejection and cancellation.
+- [x] Background paged query jobs with stale-result rejection and cancellation.
+- [ ] Expanded import error-path UI coverage for malformed CSV/Excel/Parquet files.
 
 ## M2 - Profiling, One-Click Analysis, And Text Corpus Workflow
 

@@ -20,18 +20,18 @@ Date: 2026-07-13
 - Added Excel/Parquet preview paths using Polars and the Calamine/fastexcel Excel engine; confirmed imports write to the same DuckDB preview pipeline.
 - Added normalized Parquet cache export for confirmed imports and source fingerprint invalidation checks.
 - Moved confirmed tabular import execution into a Qt background job with progress, cancellation request, and user-facing error display.
+- Moved paged table reads into background jobs with cancellation and stale-result rejection.
 
 ## Remaining Work
 
-- Move paged query execution onto cancellable background jobs with stale-result rejection.
-- Expand import error-path UI coverage.
+- Expand import error-path UI coverage for malformed CSV, Excel, and Parquet files.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
 - Profiling, charting, transforms, and project persistence are not implemented yet.
-- Paged table reads still execute synchronously on demand; background query jobs remain an M1 task.
+- Import error handling exists, but malformed-file UI coverage needs more direct tests before closing M1.
 
 ## Latest Test And Build Results
 
@@ -59,7 +59,9 @@ Date: 2026-07-13
 - Background import slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - `git commit -m "feat: run imports in background job"`: exit 0; created the background import stage commit.
 - `git push`: exit 0; pushed the background import stage to `origin/main`.
+- Background paged query slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 34 source files, pytest passed 26 tests on Python 3.13.14 / PySide6 6.11.1.
+- Background paged query slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Continue M1 with background paged query jobs, stale-result rejection, and broader import error-path UI coverage.
+Commit the background paged query slice, then continue M1 with direct malformed-file import error UI coverage.
