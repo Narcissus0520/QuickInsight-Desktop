@@ -282,8 +282,8 @@ class ProjectPersistenceService:
                 _validate_project_archive(archive)
                 manifest = _read_manifest_from_archive(archive)
                 _copy_workspace_from_archive(archive, temp_path)
+            _validate_restored_workspace(temp_path)
             os.replace(temp_path, workspace_path)
-            _validate_restored_workspace(workspace_path)
         except UserFacingError:
             temp_path.unlink(missing_ok=True)
             raise

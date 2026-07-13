@@ -66,7 +66,8 @@ M5 is active.
 - [ ] `.qiproject` save/reopen with source relocation.
   - [x] Versioned `.qiproject` package service with manifest and `project.duckdb`.
   - [x] Safe archive validation plus source evidence validation/relocation.
-  - [ ] Main-window save/open actions and project state restoration.
+  - [x] Main-window save/open actions and project state restoration.
+  - [ ] User-facing source relocation dialog for missing or mismatched source files.
 - [ ] Processed data and text export.
 - [ ] Safe category rename/merge/delete audit for text labels.
 

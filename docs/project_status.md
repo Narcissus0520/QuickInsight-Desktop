@@ -39,10 +39,11 @@ Date: 2026-07-13
 - Added the first M5 transform foundation: typed `TransformStep` execution through `TabularTransformService`, restricted transform SQL compilation, and non-destructive DuckDB preview materialization for select/rename, safe type conversion, AND/OR filters, sorting, deduplication, missing-value drop/fill, and group aggregation.
 - Completed the M5 no-code transform UI slice: the right-panel transform page now creates safe `TransformStep` objects for field selection/rename, filters, sorting, deduplication, missing-value drop/fill, safe type conversion, and group aggregation; lossy operations require confirmation, preview runs in a cancellable background job, and successful previews activate a new local DuckDB table without mutating the source table.
 - Added the first `.qiproject` persistence foundation: versioned project manifests, atomic ZIP packages containing `manifest.json` and `project.duckdb`, safe archive path/size checks, workspace restore, source-file evidence validation, and guarded source relocation.
+- Added main-window project open/save/save-as actions: project operations run in background jobs, imported tabular/text datasets and derived transform preview tables are tracked as project entries, reopened projects restore DuckDB-backed table previews or text labeling state, and missing/mismatched source files are surfaced as user-visible warnings.
 
 ## Remaining Work
 
-- Wire `.qiproject` save/open actions into the main window and restore project dataset state.
+- Add a user-facing source relocation dialog for missing or mismatched source files.
 - Add processed data and text export.
 - Add safe category rename/merge/delete audit for text labels.
 - Continue committing once per completed milestone or coherent stage.
@@ -51,8 +52,8 @@ Date: 2026-07-13
 
 - Full packaging is intentionally deferred to M6.
 - SVG/PNG export requires a loaded desktop `QWebEngineView`; offscreen automated tests cover HTML/JSON export and the `toImage` bridge script rather than executing browser image capture.
-- Transform history is currently visible as pending UI steps and preview-table lineage only; durable transform/project history awaits main-window project state wiring.
-- Project package persistence exists as an application service with integration tests; main-window save/open actions are not connected yet.
+- Transform history is persisted for derived transform preview tables; full operation-history editing remains a later hardening task.
+- Project open reports missing/mismatched external sources, but the user-facing relocation dialog is not connected yet.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
 - Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
@@ -123,7 +124,9 @@ Date: 2026-07-13
 - M5 no-code transform UI slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M5 `.qiproject` persistence foundation slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 49 source files, pytest passed 83 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 `.qiproject` persistence foundation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M5 main-window project save/open slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 49 source files, pytest passed 85 tests on Python 3.13.14 / PySide6 6.11.1.
+- M5 main-window project save/open slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Wire `.qiproject` save/open actions into the main window and restore project dataset state.
+Add a user-facing source relocation dialog for missing or mismatched source files.

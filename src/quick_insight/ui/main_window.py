@@ -44,6 +44,15 @@ from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
 from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
 from quick_insight.application.profiling import TabularProfiler
+from quick_insight.application.project import (
+    PROJECT_EXTENSION,
+    ProjectDatasetEntry,
+    ProjectManifest,
+    ProjectOpenResult,
+    ProjectPersistenceService,
+    ProjectSaveResult,
+    SourceReferenceStatus,
+)
 from quick_insight.application.text_corpus import TextCorpusImportResult, TextCorpusService
 from quick_insight.application.text_labeling import (
     UNCATEGORIZED_FILTER,
@@ -60,11 +69,12 @@ from quick_insight.charts import (
     PlotlyChartDocument,
     build_preview_document,
 )
-from quick_insight.domain.enums import AnalysisIntent
+from quick_insight.domain.enums import AnalysisIntent, DatasetKind
 from quick_insight.domain.models import (
     Category,
     ChartRecommendation,
     ColumnProfile,
+    DatasetHandle,
     DatasetProfile,
     TextRecord,
     TransformStep,
@@ -102,6 +112,7 @@ class MainWindow(QMainWindow):
         self._text_corpus_service = TextCorpusService(self._workspace)
         self._text_labeling_service = TextLabelingService(self._workspace)
         self._transform_service = TabularTransformService(self._workspace)
+        self._project_service = ProjectPersistenceService(self._workspace)
 
         self._stack = QStackedWidget()
         self._error_label = QLabel("无错误")
@@ -158,13 +169,18 @@ class MainWindow(QMainWindow):
         self._running_profile_job: QtJobRunner[DatasetProfile] | None = None
         self._running_chart_job: QtJobRunner[PlotlyChartDocument] | None = None
         self._running_transform_job: QtJobRunner[TransformPreviewResult] | None = None
+        self._running_project_job: QtJobRunner[ProjectSaveResult | ProjectOpenResult] | None = None
         self._chart_generation = 0
         self._transform_generation = 0
+        self._project_generation = 0
         self._current_tabular_table_name: str | None = None
         self._current_tabular_columns: tuple[WorkspaceColumn, ...] = ()
         self._current_profile: DatasetProfile | None = None
         self._current_recommendations: tuple[ChartRecommendation, ...] = ()
         self._current_text_corpus_id: str | None = None
+        self._project_dataset_entries: list[ProjectDatasetEntry] = []
+        self._current_project_manifest: ProjectManifest | None = None
+        self._current_project_path: Path | None = None
         self._transform_step_objects: list[TransformStep] = []
         self._text_label_model: TextRecordTableModel | None = None
         self._text_categories: tuple[Category, ...] = ()
@@ -209,6 +225,21 @@ class MainWindow(QMainWindow):
         self._theme_selector.addItem("深色", "dark")
         self._theme_selector.currentIndexChanged.connect(self._on_theme_selected)
         toolbar.addWidget(self._theme_selector)
+
+        open_project_button = QPushButton("打开项目")
+        open_project_button.setObjectName("projectOpenButton")
+        open_project_button.clicked.connect(self._open_project_from_dialog)
+        toolbar.addWidget(open_project_button)
+
+        save_project_button = QPushButton("保存项目")
+        save_project_button.setObjectName("projectSaveButton")
+        save_project_button.clicked.connect(self._save_project)
+        toolbar.addWidget(save_project_button)
+
+        save_as_project_button = QPushButton("另存项目")
+        save_as_project_button.setObjectName("projectSaveAsButton")
+        save_as_project_button.clicked.connect(self._save_project_as)
+        toolbar.addWidget(save_as_project_button)
 
         help_button = QPushButton("设置")
         help_button.setObjectName("settingsButton")
@@ -1134,6 +1165,29 @@ class MainWindow(QMainWindow):
 
     def _show_transform_preview_result(self, result: TransformPreviewResult) -> None:
         display_name = f"转换预览 {len(result.steps)} 步"
+        handle = DatasetHandle(
+            id=result.table_name,
+            kind=DatasetKind.TABULAR,
+            display_name=display_name,
+            source_path=None,
+            workspace_path=self._workspace.path,
+            row_count=result.row_count,
+            column_count=len(result.columns),
+            import_options={
+                "source_table": result.source_table,
+                "transform_step_count": len(result.steps),
+                "transform_steps": [_transform_step_payload(step) for step in result.steps],
+            },
+            fingerprint=None,
+            cache_key=result.table_name,
+        )
+        self._add_project_dataset_entry(
+            ProjectDatasetEntry.from_handle(
+                handle,
+                table_name=result.table_name,
+                transform_steps=result.steps,
+            )
+        )
         self._current_tabular_table_name = result.table_name
         self._current_tabular_columns = result.columns
         self._current_text_corpus_id = None
@@ -1208,6 +1262,351 @@ class MainWindow(QMainWindow):
             self._theme_selector.setCurrentIndex(index)
             self._theme_selector.blockSignals(was_blocked)
 
+    def _open_project_from_dialog(self) -> None:
+        selected, _filter = QFileDialog.getOpenFileName(
+            self,
+            "打开项目",
+            str(Path.home() / "Documents"),
+            "QuickInsight 项目 (*.qiproject)",
+        )
+        if not selected:
+            return
+        self._open_project_from_path(Path(selected))
+
+    def _save_project(self) -> None:
+        if self._current_project_path is None:
+            self._save_project_as()
+            return
+        self._save_project_to_path(self._current_project_path)
+
+    def _save_project_as(self) -> None:
+        default_dir = Path.home() / "Documents"
+        if not default_dir.exists():
+            default_dir = self._paths.config_dir
+        default_name = (
+            self._current_project_manifest.display_name
+            if self._current_project_manifest is not None
+            else "quick-insight-project"
+        )
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "保存项目",
+            str(default_dir / f"{default_name}{PROJECT_EXTENSION}"),
+            "QuickInsight 项目 (*.qiproject)",
+        )
+        if not selected:
+            return
+        self._save_project_to_path(Path(selected))
+
+    def _save_project_to_path(self, path: Path) -> None:
+        try:
+            manifest = self._build_project_manifest(path)
+        except UserFacingError as exc:
+            self.show_user_error(exc)
+            return
+        if self._running_project_job is not None:
+            self._running_project_job.cancel()
+        self._project_generation += 1
+        generation = self._project_generation
+        self._jobs_label.setText("后台任务：正在保存项目")
+        job: QtJobRunner[ProjectSaveResult | ProjectOpenResult] = QtJobRunner(
+            "project_save",
+            lambda context: self._save_project_job(context, path=path, manifest=manifest),
+        )
+        self._running_project_job = job
+        job.signals.progress.connect(self._on_project_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_project_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _open_project_from_path(self, path: Path) -> None:
+        if self._running_project_job is not None:
+            self._running_project_job.cancel()
+        self._cancel_background_work()
+        self._project_generation += 1
+        generation = self._project_generation
+        self._jobs_label.setText("后台任务：正在打开项目")
+        workspace_path = self._paths.cache_dir / "workspace.duckdb"
+        job: QtJobRunner[ProjectSaveResult | ProjectOpenResult] = QtJobRunner(
+            "project_open",
+            lambda context: self._open_project_job(
+                context,
+                project_path=path,
+                workspace_path=workspace_path,
+            ),
+        )
+        self._running_project_job = job
+        job.signals.progress.connect(self._on_project_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_project_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _build_project_manifest(self, path: Path) -> ProjectManifest:
+        if not self._project_dataset_entries:
+            raise UserFacingError(
+                code="PROJECT_SAVE_NO_DATASETS",
+                title_zh="没有可保存的数据",
+                message_zh="当前项目还没有导入表格或文本语料。",
+                next_action_zh="请先导入数据，再保存项目。",
+            )
+        display_name = (
+            self._current_project_manifest.display_name
+            if self._current_project_manifest is not None
+            else (path.stem or "未命名项目")
+        )
+        datasets = self._project_entries_for_current_workspace()
+        if self._current_project_manifest is None:
+            return ProjectManifest.create(
+                display_name,
+                datasets,
+            )
+        return replace(
+            self._current_project_manifest,
+            display_name=display_name,
+            datasets=datasets,
+        )
+
+    def _save_project_job(
+        self,
+        context: JobContext,
+        *,
+        path: Path,
+        manifest: ProjectManifest,
+    ) -> ProjectSaveResult:
+        context.progress(10, "正在整理项目清单")
+        result = self._project_service.save_project(path, manifest)
+        context.progress(90, "正在完成项目保存")
+        return result
+
+    def _open_project_job(
+        self,
+        context: JobContext,
+        *,
+        project_path: Path,
+        workspace_path: Path,
+    ) -> ProjectOpenResult:
+        context.progress(10, "正在读取项目包")
+        result = self._project_service.open_project(project_path, workspace_path)
+        context.progress(90, "正在校验源文件引用")
+        return result
+
+    def _on_project_progress(self, progress: JobProgress) -> None:
+        if self._is_disposed or progress.state is not JobState.RUNNING:
+            return
+        percent_text = "" if progress.percent is None else f"{progress.percent}% "
+        self._jobs_label.setText(f"后台任务：{percent_text}{progress.message_zh}")
+
+    def _on_project_completed(
+        self,
+        expected_generation: int,
+        outcome: JobOutcome[ProjectSaveResult | ProjectOpenResult],
+    ) -> None:
+        if self._is_disposed or expected_generation != self._project_generation:
+            return
+        self._running_project_job = None
+        if outcome.state is JobState.CANCELLED:
+            self._jobs_label.setText("后台任务：项目操作已取消")
+            return
+        if outcome.state is not JobState.SUCCEEDED or outcome.value is None:
+            self._jobs_label.setText("后台任务：项目操作失败")
+            if isinstance(outcome.error, UserFacingError):
+                self.show_user_error(outcome.error)
+            else:
+                self.show_user_error(
+                    UserFacingError(
+                        code="PROJECT_OPERATION_UNEXPECTED_FAILURE",
+                        title_zh="项目操作失败",
+                        message_zh="保存或打开项目时发生未预期错误。",
+                        next_action_zh="请复制技术详情后稍后重试或提交问题。",
+                        technical_detail=repr(outcome.error),
+                    )
+                )
+            return
+        if isinstance(outcome.value, ProjectSaveResult):
+            self._on_project_saved(outcome.value)
+            return
+        self._on_project_opened(outcome.value)
+
+    def _on_project_saved(self, result: ProjectSaveResult) -> None:
+        self._current_project_path = result.path
+        self._current_project_manifest = result.manifest
+        self._project_dataset_entries = list(result.manifest.datasets)
+        self._jobs_label.setText("后台任务：项目已保存")
+        self._error_label.setText(f"项目已保存：{result.path}")
+        self.statusBar().showMessage("项目保存完成", 5000)
+
+    def _on_project_opened(self, result: ProjectOpenResult) -> None:
+        self._set_workspace(result.workspace)
+        self._current_project_path = result.path
+        self._current_project_manifest = result.manifest
+        self._project_dataset_entries = list(result.manifest.datasets)
+        self._restore_project_dataset_list()
+        self._restore_first_project_dataset()
+        self._jobs_label.setText("后台任务：项目已打开")
+        self._error_label.setText(_project_source_status_text(result.source_statuses))
+        self.statusBar().showMessage("项目打开完成", 5000)
+
+    def _set_workspace(self, workspace: WorkspaceDatabase) -> None:
+        self._workspace = workspace
+        self._import_service = TabularImportService(self._workspace)
+        self._text_corpus_service = TextCorpusService(self._workspace)
+        self._text_labeling_service = TextLabelingService(self._workspace)
+        self._transform_service = TabularTransformService(self._workspace)
+        self._project_service = ProjectPersistenceService(self._workspace)
+
+    def _cancel_background_work(self) -> None:
+        self._profile_generation += 1
+        self._chart_generation += 1
+        self._transform_generation += 1
+        if self._running_profile_job is not None:
+            self._running_profile_job.cancel()
+            self._running_profile_job = None
+        if self._running_chart_job is not None:
+            self._running_chart_job.cancel()
+            self._running_chart_job = None
+        if self._running_transform_job is not None:
+            self._running_transform_job.cancel()
+            self._running_transform_job = None
+        if self._text_label_model is not None:
+            self._text_label_model.cancel_pending_queries()
+            self._text_label_model = None
+
+    def _restore_project_dataset_list(self) -> None:
+        self._dataset_list.clear()
+        for entry in self._project_dataset_entries:
+            self._dataset_list.addItem(entry.handle.display_name)
+
+    def _restore_first_project_dataset(self) -> None:
+        self._clear_workspace_views()
+        for entry in self._project_dataset_entries:
+            if entry.handle.kind is DatasetKind.TABULAR and entry.table_name:
+                self._display_tabular_project_entry(entry)
+                return
+            if entry.handle.kind is DatasetKind.TEXT_CORPUS:
+                self._display_text_project_entry(entry)
+                return
+        self._stack.setCurrentIndex(0)
+        self._row_count_label.setText("行/记录：未加载")
+        self._query_time_label.setText("查询：--")
+        self._approximation_label.setText("近似：无")
+
+    def _clear_workspace_views(self) -> None:
+        self._current_tabular_table_name = None
+        self._current_tabular_columns = ()
+        self._current_profile = None
+        self._current_recommendations = ()
+        self._current_text_corpus_id = None
+        self._preview_table.setModel(None)
+        self._preview_summary.setText("尚未导入数据。")
+        self._profile_summary.setText("尚未生成数据画像。")
+        self._profile_fields.clear()
+        self._profile_findings.clear()
+        self._render_recommendation_cards(())
+        self._refresh_transform_columns(())
+        self._clear_transform_steps()
+        self._set_transform_panel_enabled(False)
+        self._text_label_table.setModel(None)
+        self._text_label_status.setText("尚未加载文本语料。")
+        self._set_text_editor_enabled(False)
+
+    def _display_tabular_project_entry(self, entry: ProjectDatasetEntry) -> None:
+        table_name = entry.table_name
+        if table_name is None:
+            return
+        try:
+            columns = self._workspace.columns(table_name)
+            row_count = self._workspace.row_count(table_name)
+        except Exception as exc:
+            self.show_user_error(
+                UserFacingError(
+                    code="PROJECT_RESTORE_TABLE_FAILED",
+                    title_zh="无法恢复表格预览",
+                    message_zh=f"项目中的表格 {entry.handle.display_name} 无法读取。",
+                    next_action_zh="请重新打开项目，或从源文件重新导入。",
+                    technical_detail=repr(exc),
+                )
+            )
+            return
+        self._current_tabular_table_name = table_name
+        self._current_tabular_columns = columns
+        self._current_text_corpus_id = None
+        self._refresh_transform_columns(columns)
+        self._clear_transform_steps()
+        self._set_transform_panel_enabled(True)
+        self._preview_table.setModel(
+            DuckDbTableModel(
+                workspace=self._workspace,
+                table_name=table_name,
+                columns=columns,
+                row_count=row_count,
+            )
+        )
+        self._preview_summary.setText(
+            f"{entry.handle.display_name}：{row_count} 行，{len(columns)} 列。"
+            "项目已从 .qiproject 恢复，预览后台按页读取。"
+        )
+        self._row_count_label.setText(f"行/记录：{row_count}")
+        self._query_time_label.setText("查询：项目恢复分页")
+        self._approximation_label.setText("近似：无")
+        self._stack.setCurrentIndex(1)
+        self._start_tabular_profile_job(
+            dataset_id=entry.handle.id,
+            table_name=table_name,
+            import_options=dict(entry.handle.import_options),
+        )
+
+    def _display_text_project_entry(self, entry: ProjectDatasetEntry) -> None:
+        corpus_id = entry.handle.cache_key or entry.handle.id
+        records = self._workspace.list_text_records(corpus_id)
+        categories = self._workspace.list_categories()
+        result = TextCorpusImportResult(
+            handle=entry.handle,
+            records=records,
+            categories=categories,
+        )
+        self._current_tabular_table_name = None
+        self._current_tabular_columns = ()
+        self._refresh_transform_columns(())
+        self._clear_transform_steps()
+        self._set_transform_panel_enabled(False, "文本语料暂不使用表格转换面板。")
+        self._row_count_label.setText(f"行/记录：{len(records)}")
+        self._query_time_label.setText("查询：项目文本语料已恢复")
+        self._approximation_label.setText("近似：无")
+        self._load_text_label_workspace(result)
+        self._stack.setCurrentIndex(5)
+        self._start_text_profile_job(result)
+
+    def _add_project_dataset_entry(self, entry: ProjectDatasetEntry) -> None:
+        key = _project_dataset_key(entry)
+        self._project_dataset_entries = [
+            existing
+            for existing in self._project_dataset_entries
+            if _project_dataset_key(existing) != key
+        ]
+        self._project_dataset_entries.append(entry)
+        if self._current_project_manifest is not None:
+            self._current_project_manifest = replace(
+                self._current_project_manifest,
+                datasets=tuple(self._project_dataset_entries),
+            )
+
+    def _project_entries_for_current_workspace(self) -> tuple[ProjectDatasetEntry, ...]:
+        return tuple(
+            replace(
+                entry,
+                handle=replace(entry.handle, workspace_path=self._workspace.path),
+            )
+            for entry in self._project_dataset_entries
+        )
+
     def _open_tabular_import(self, path: Path | None = None) -> None:
         dialog = TabularImportDialog(service=self._import_service, initial_path=path, parent=self)
         if (
@@ -1229,6 +1628,9 @@ class MainWindow(QMainWindow):
 
     def _show_import_result(self, result: TabularImportResult) -> None:
         handle = result.handle
+        self._add_project_dataset_entry(
+            ProjectDatasetEntry.from_handle(handle, table_name=result.table_name)
+        )
         self._current_tabular_table_name = result.table_name
         self._current_tabular_columns = result.columns
         self._current_text_corpus_id = None
@@ -1258,6 +1660,7 @@ class MainWindow(QMainWindow):
 
     def _show_text_corpus_result(self, result: TextCorpusImportResult) -> None:
         handle = result.handle
+        self._add_project_dataset_entry(ProjectDatasetEntry.from_handle(handle))
         self._current_tabular_table_name = None
         self._current_tabular_columns = ()
         self._refresh_transform_columns(())
@@ -1885,19 +2288,11 @@ class MainWindow(QMainWindow):
 
     def _on_destroyed(self) -> None:
         self._is_disposed = True
-        self._profile_generation += 1
-        if self._running_profile_job is not None:
-            self._running_profile_job.cancel()
-            self._running_profile_job = None
-        if self._running_chart_job is not None:
-            self._running_chart_job.cancel()
-            self._running_chart_job = None
-        if self._running_transform_job is not None:
-            self._running_transform_job.cancel()
-            self._running_transform_job = None
-        if self._text_label_model is not None:
-            self._text_label_model.cancel_pending_queries()
-            self._text_label_model = None
+        self._cancel_background_work()
+        self._project_generation += 1
+        if self._running_project_job is not None:
+            self._running_project_job.cancel()
+            self._running_project_job = None
 
     def _start_profile_job(self, result: TabularImportResult) -> None:
         self._start_tabular_profile_job(
@@ -2114,6 +2509,30 @@ class MainWindow(QMainWindow):
         self._jobs_label.setText("后台任务：空闲")
         self._stack.setCurrentIndex(2)
         self.statusBar().showMessage("文本画像完成", 5000)
+
+
+def _project_dataset_key(entry: ProjectDatasetEntry) -> str:
+    if entry.table_name:
+        return f"table:{entry.table_name}"
+    return f"dataset:{entry.handle.id}"
+
+
+def _project_source_status_text(statuses: tuple[SourceReferenceStatus, ...]) -> str:
+    if not statuses:
+        return "项目已打开：没有外部源文件引用。"
+    counts: dict[str, int] = {}
+    for status in statuses:
+        counts[status.status] = counts.get(status.status, 0) + 1
+    if counts.get("missing") or counts.get("mismatch"):
+        details = "；".join(
+            f"{status.display_name}：{status.message_zh}"
+            for status in statuses
+            if status.status in {"missing", "mismatch"}
+        )
+        return f"项目已打开，但有源文件需要处理：{details}"
+    if counts.get("metadata_changed"):
+        return "项目已打开：部分源文件内容采样匹配但元数据变化，建议确认后重新保存。"
+    return "项目已打开：源文件引用校验通过。"
 
 
 def _coerce_transform_value(

@@ -18,6 +18,7 @@ from quick_insight.application.importing import TabularImportService
 from quick_insight.application.text_corpus import TextCorpusService
 from quick_insight.charts import ChartExportFormat, ChartExportResult
 from quick_insight.charts.security import classify_chart_request
+from quick_insight.domain.enums import DatasetKind
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
@@ -189,6 +190,88 @@ def test_main_window_transform_panel_generates_non_destructive_preview(
     assert "源表" in status.text()
     assert steps.count() == 0
     qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+
+
+def test_main_window_saves_and_opens_qiproject_with_dataset_state(
+    qtbot,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("region,amount\nNorth,10\nSouth,20\n", encoding="utf-8")
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    tabular_service = TabularImportService(workspace)
+    tabular_result = tabular_service.import_csv(tabular_service.preview_csv(source))
+    text_result = TextCorpusService(workspace).import_preview(
+        TextCorpusService(workspace).preview_text(
+            "第一条反馈\n第二条反馈",
+            display_name="手动语料",
+        )
+    )
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+    window._show_import_result(tabular_result)
+    window._show_text_corpus_result(text_result)
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+    project_path = tmp_path / "saved.qiproject"
+
+    window._save_project_to_path(project_path)
+    qtbot.waitUntil(lambda: window._running_project_job is None, timeout=6000)
+
+    assert project_path.exists()
+    assert window._current_project_path == project_path
+    reopened_paths = AppPaths.under(tmp_path / "reopened").ensure()
+    reopened = MainWindow(settings=AppSettings(), paths=reopened_paths)
+    qtbot.addWidget(reopened)
+
+    reopened._open_project_from_path(project_path)
+    qtbot.waitUntil(lambda: reopened._running_project_job is None, timeout=6000)
+    qtbot.waitUntil(lambda: reopened._running_profile_job is None, timeout=6000)
+
+    assert reopened.findChild(QListWidget, "datasetList").count() == 2
+    assert reopened._current_tabular_table_name == tabular_result.table_name
+    assert reopened._workspace.row_count(tabular_result.table_name) == 2
+    assert reopened.findChild(QLabel, "rowCountLabel").text() == "行/记录：2"
+    assert "项目已从 .qiproject 恢复" in reopened._preview_summary.text()
+    text_entries = [
+        entry
+        for entry in reopened._project_dataset_entries
+        if entry.handle.kind is DatasetKind.TEXT_CORPUS
+    ]
+    assert len(text_entries) == 1
+    assert len(reopened._workspace.list_text_records(text_entries[0].handle.cache_key or "")) == 2
+
+
+def test_main_window_open_project_reports_missing_source(
+    qtbot,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("region,amount\nNorth,10\n", encoding="utf-8")
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    result = service.import_csv(service.preview_csv(source))
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+    window._show_import_result(result)
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+    project_path = tmp_path / "missing-source.qiproject"
+    window._save_project_to_path(project_path)
+    qtbot.waitUntil(lambda: window._running_project_job is None, timeout=6000)
+    source.unlink()
+    reopened = MainWindow(
+        settings=AppSettings(),
+        paths=AppPaths.under(tmp_path / "reopened").ensure(),
+    )
+    qtbot.addWidget(reopened)
+
+    reopened._open_project_from_path(project_path)
+    qtbot.waitUntil(lambda: reopened._running_project_job is None, timeout=6000)
+    qtbot.waitUntil(lambda: reopened._running_profile_job is None, timeout=6000)
+
+    assert "源文件需要处理" in reopened.findChild(QLabel, "errorLabel").text()
+    assert reopened._workspace.row_count(result.table_name) == 1
 
 
 def test_main_window_shows_one_click_analysis_findings(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
