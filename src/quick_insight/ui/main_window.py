@@ -172,6 +172,14 @@ class MainWindow(QMainWindow):
         self._text_save_next_button = QPushButton("保存并下一条")
         self._text_undo_button = QPushButton("撤销上次编辑")
         self._text_bulk_apply_button = QPushButton("批量应用到选中")
+        self._category_manage_combo = QComboBox()
+        self._category_target_combo = QComboBox()
+        self._category_name_edit = QLineEdit()
+        self._category_description_edit = QLineEdit()
+        self._category_note_edit = QLineEdit()
+        self._category_rename_button = QPushButton("重命名")
+        self._category_merge_button = QPushButton("合并")
+        self._category_delete_button = QPushButton("删除")
         self._row_count_label = QLabel("行/记录：未加载")
         self._query_time_label = QLabel("查询：--")
         self._approximation_label = QLabel("近似：无")
@@ -659,6 +667,52 @@ class MainWindow(QMainWindow):
         controls.addWidget(QLabel("类别"))
         controls.addWidget(self._text_filter_category, stretch=1)
 
+        category_panel = QFrame()
+        category_panel.setObjectName("categoryGovernancePanel")
+        category_layout = QVBoxLayout(category_panel)
+        category_layout.setContentsMargins(12, 10, 12, 10)
+        category_layout.setSpacing(8)
+        category_title = QLabel("分类管理")
+        category_title.setObjectName("subsectionTitle")
+
+        category_form = QFormLayout()
+        category_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self._category_manage_combo.setObjectName("categoryManageCombo")
+        self._category_manage_combo.currentIndexChanged.connect(
+            self._on_category_manage_selection_changed
+        )
+        self._category_name_edit.setObjectName("categoryNameEdit")
+        self._category_name_edit.setPlaceholderText("新的分类名称")
+        self._category_description_edit.setObjectName("categoryDescriptionEdit")
+        self._category_description_edit.setPlaceholderText("分类说明")
+        self._category_note_edit.setObjectName("categoryAuditNoteEdit")
+        self._category_note_edit.setPlaceholderText("本次操作备注（可选）")
+        self._category_target_combo.setObjectName("categoryTargetCombo")
+        self._category_target_combo.currentIndexChanged.connect(
+            lambda _index: self._sync_category_governance_controls()
+        )
+        category_form.addRow("当前分类", self._category_manage_combo)
+        category_form.addRow("名称", self._category_name_edit)
+        category_form.addRow("说明", self._category_description_edit)
+        category_form.addRow("目标/替换", self._category_target_combo)
+        category_form.addRow("备注", self._category_note_edit)
+
+        category_buttons = QHBoxLayout()
+        self._category_rename_button.setObjectName("categoryRenameButton")
+        self._category_merge_button.setObjectName("categoryMergeButton")
+        self._category_delete_button.setObjectName("categoryDeleteButton")
+        self._category_rename_button.clicked.connect(self._rename_text_category)
+        self._category_merge_button.clicked.connect(self._merge_text_category)
+        self._category_delete_button.clicked.connect(self._delete_text_category)
+        category_buttons.addWidget(self._category_rename_button)
+        category_buttons.addWidget(self._category_merge_button)
+        category_buttons.addWidget(self._category_delete_button)
+        category_buttons.addStretch(1)
+
+        category_layout.addWidget(category_title)
+        category_layout.addLayout(category_form)
+        category_layout.addLayout(category_buttons)
+
         self._text_label_table.setObjectName("textLabelTable")
         self._text_label_table.setAlternatingRowColors(True)
         self._text_label_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -732,6 +786,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(self._text_label_status)
         layout.addLayout(controls)
+        layout.addWidget(category_panel)
         layout.addWidget(self._text_label_table, stretch=3)
         layout.addWidget(editor, stretch=2)
         self._set_text_editor_enabled(False)
@@ -1853,6 +1908,204 @@ class MainWindow(QMainWindow):
 
         if self._text_label_model is not None:
             self._text_label_model.set_categories(self._text_categories)
+        self._refresh_category_governance_controls(usage_counts)
+
+    def _refresh_category_governance_controls(self, usage_counts: dict[str, int]) -> None:
+        selected_category_id = self._category_manage_combo.currentData()
+        selected_target_id = self._category_target_combo.currentData()
+
+        manage_blocker = QSignalBlocker(self._category_manage_combo)
+        self._category_manage_combo.clear()
+        for category in self._text_categories:
+            count = usage_counts.get(category.id, 0)
+            self._category_manage_combo.addItem(f"{category.name} ({count})", category.id)
+        manage_index = self._category_manage_combo.findData(selected_category_id)
+        self._category_manage_combo.setCurrentIndex(manage_index if manage_index >= 0 else 0)
+        del manage_blocker
+
+        target_blocker = QSignalBlocker(self._category_target_combo)
+        self._category_target_combo.clear()
+        self._category_target_combo.addItem("删除后设为未分类", "")
+        for category in self._text_categories:
+            count = usage_counts.get(category.id, 0)
+            self._category_target_combo.addItem(f"{category.name} ({count})", category.id)
+        target_index = self._category_target_combo.findData(selected_target_id)
+        self._category_target_combo.setCurrentIndex(target_index if target_index >= 0 else 0)
+        del target_blocker
+
+        self._on_category_manage_selection_changed(self._category_manage_combo.currentIndex())
+
+    def _on_category_manage_selection_changed(self, _index: int) -> None:
+        category = self._selected_category_for_management()
+        if category is None:
+            self._category_name_edit.clear()
+            self._category_description_edit.clear()
+        else:
+            self._category_name_edit.setText(category.name)
+            self._category_description_edit.setText(category.description)
+        self._sync_category_governance_controls()
+
+    def _sync_category_governance_controls(self) -> None:
+        has_corpus = self._current_text_corpus_id is not None
+        category = self._selected_category_for_management()
+        has_category = has_corpus and category is not None
+        target_id = self._selected_category_target_id()
+        can_merge = False
+        can_delete = False
+        if has_category and category is not None:
+            can_merge = bool(target_id) and target_id != category.id
+            can_delete = target_id != category.id
+        for widget in (
+            self._category_manage_combo,
+            self._category_name_edit,
+            self._category_description_edit,
+            self._category_note_edit,
+            self._category_target_combo,
+        ):
+            widget.setEnabled(has_category)
+        self._category_rename_button.setEnabled(has_category)
+        self._category_merge_button.setEnabled(can_merge)
+        self._category_delete_button.setEnabled(can_delete)
+
+    def _rename_text_category(self) -> None:
+        corpus_id = self._current_text_corpus_id
+        category = self._selected_category_for_management()
+        if corpus_id is None or category is None:
+            self._text_label_status.setText("请先加载文本语料并选择分类。")
+            return
+        try:
+            result = self._text_labeling_service.rename_category(
+                corpus_id,
+                category.id,
+                new_name=self._category_name_edit.text(),
+                new_description=self._category_description_edit.text(),
+                note=self._category_note_edit.text(),
+            )
+        except UserFacingError as exc:
+            self.show_user_error(exc)
+            return
+        self._apply_category_operation_result(
+            result.audit.target_category_id,
+            f"分类已重命名，影响 {result.audit.affected_record_count} 条记录。",
+        )
+
+    def _merge_text_category(self) -> None:
+        corpus_id = self._current_text_corpus_id
+        source = self._selected_category_for_management()
+        target_id = self._selected_category_target_id()
+        target = self._category_by_id(target_id)
+        if corpus_id is None or source is None or target is None:
+            self._text_label_status.setText("请选择要合并的来源分类和目标分类。")
+            return
+        affected_count = self._category_usage_count(source.id)
+        if not self._confirm_category_operation(
+            "合并分类",
+            f"将“{source.name}”合并到“{target.name}”，影响 {affected_count} 条记录。",
+        ):
+            return
+        try:
+            result = self._text_labeling_service.merge_categories(
+                corpus_id,
+                source_category_id=source.id,
+                target_category_id=target.id,
+                note=self._category_note_edit.text(),
+            )
+        except UserFacingError as exc:
+            self.show_user_error(exc)
+            return
+        self._apply_category_operation_result(
+            result.audit.target_category_id,
+            f"分类已合并，更新 {result.audit.affected_record_count} 条记录。",
+        )
+
+    def _delete_text_category(self) -> None:
+        corpus_id = self._current_text_corpus_id
+        category = self._selected_category_for_management()
+        replacement_id = self._selected_category_target_id()
+        replacement = self._category_by_id(replacement_id)
+        if corpus_id is None or category is None:
+            self._text_label_status.setText("请选择要删除的分类。")
+            return
+        affected_count = self._category_usage_count(category.id)
+        replacement_text = (
+            f"替换为“{replacement.name}”" if replacement is not None else "设为未分类"
+        )
+        if not self._confirm_category_operation(
+            "删除分类",
+            f"将删除“{category.name}”，并把 {affected_count} 条记录{replacement_text}。",
+        ):
+            return
+        try:
+            result = self._text_labeling_service.delete_category(
+                corpus_id,
+                category_id=category.id,
+                replacement_category_id=replacement.id if replacement is not None else None,
+                note=self._category_note_edit.text(),
+            )
+        except UserFacingError as exc:
+            self.show_user_error(exc)
+            return
+        self._apply_category_operation_result(
+            result.audit.target_category_id,
+            f"分类已删除，更新 {result.audit.affected_record_count} 条记录。",
+        )
+
+    def _apply_category_operation_result(
+        self,
+        preferred_category_id: str | None,
+        message: str,
+    ) -> None:
+        current_row = self._text_label_table.currentIndex().row()
+        self._category_note_edit.clear()
+        self._refresh_text_label_categories()
+        if preferred_category_id:
+            index = self._category_manage_combo.findData(preferred_category_id)
+            if index >= 0:
+                self._category_manage_combo.setCurrentIndex(index)
+        if self._text_label_model is not None:
+            self._text_label_model.refresh()
+            self._selected_text_record = None
+            row_count = self._text_label_model.rowCount()
+            if row_count:
+                self._select_text_label_row(min(max(current_row, 0), row_count - 1))
+            else:
+                self._clear_text_record_editor()
+                self._set_text_editor_enabled(False)
+        self._text_label_status.setText(message)
+
+    def _confirm_category_operation(self, title: str, message: str) -> bool:
+        answer = QMessageBox.question(
+            self,
+            title,
+            f"{message}\n\n该操作会写入审计记录，原始文本内容不会被记录到审计日志。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _selected_category_for_management(self) -> Category | None:
+        data = self._category_manage_combo.currentData()
+        return self._category_by_id(data if isinstance(data, str) else None)
+
+    def _selected_category_target_id(self) -> str | None:
+        data = self._category_target_combo.currentData()
+        if isinstance(data, str) and data:
+            return data
+        return None
+
+    def _category_by_id(self, category_id: str | None) -> Category | None:
+        if not category_id:
+            return None
+        for category in self._text_categories:
+            if category.id == category_id:
+                return category
+        return None
+
+    def _category_usage_count(self, category_id: str) -> int:
+        corpus_id = self._current_text_corpus_id
+        if corpus_id is None:
+            return 0
+        return self._text_labeling_service.category_usage_counts(corpus_id).get(category_id, 0)
 
     def _apply_text_label_filter(self) -> None:
         if self._text_label_model is None:

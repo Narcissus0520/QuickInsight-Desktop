@@ -63,6 +63,21 @@ class Category:
 
 
 @dataclass(frozen=True)
+class CategoryAuditRecord:
+    id: str
+    corpus_id: str
+    action: str
+    source_category_id: str | None
+    source_category_name: str
+    target_category_id: str | None = None
+    target_category_name: str | None = None
+    affected_record_count: int = 0
+    note: str = ""
+    created_at: datetime = field(default_factory=utc_now)
+    schema_version: int = 1
+
+
+@dataclass(frozen=True)
 class TextRecord:
     id: str
     content: str

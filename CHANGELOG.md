@@ -30,4 +30,4 @@
 - Added main-window project open/save/save-as actions that run in background jobs, track tabular/text/derived transform datasets in the project manifest, restore DuckDB-backed previews and text labeling state after reopen, and surface source-reference warnings.
 - Added a user-facing source relocation dialog for missing or mismatched external source files; moved files are accepted only after saved size and content sample evidence match the project record.
 - Added processed-data export: current tabular/imported/transform-preview tables export to CSV or Parquet, current text corpora export to JSONL or CSV with category/tag metadata, exports run in background jobs, and existing target files are refused by default.
-- Advanced category governance remains a future milestone.
+- Added safe text category governance: transactional rename/merge/delete, category descriptions, affected-record counts, privacy-conscious audit records, and text-labeling UI controls.

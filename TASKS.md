@@ -58,7 +58,7 @@ M4 is accepted.
 
 ## M5 - Transforms And Project Persistence
 
-M5 is active.
+M5 is accepted.
 
 - [x] No-code transforms and aggregation.
   - [x] Safe transform specification, SQL compiler, and DuckDB preview materialization.
@@ -69,9 +69,11 @@ M5 is active.
   - [x] Main-window save/open actions and project state restoration.
   - [x] User-facing source relocation dialog for missing or mismatched source files.
 - [x] Processed data and text export.
-- [ ] Safe category rename/merge/delete audit for text labels.
+- [x] Safe category rename/merge/delete audit for text labels.
 
 ## M6 - Performance, Hardening, And Release
+
+M6 is active.
 
 - [ ] Benchmarks and memory/cache cleanup.
 - [ ] Accessibility and DPI pass.

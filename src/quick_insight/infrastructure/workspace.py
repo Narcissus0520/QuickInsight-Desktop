@@ -11,7 +11,13 @@ from typing import Any
 import duckdb
 import polars as pl
 
-from quick_insight.domain.models import Category, PreparedChartDataset, TextRecord, TransformStep
+from quick_insight.domain.models import (
+    Category,
+    CategoryAuditRecord,
+    PreparedChartDataset,
+    TextRecord,
+    TransformStep,
+)
 from quick_insight.infrastructure.csv_import import CsvImportOptions
 from quick_insight.infrastructure.sql import quote_identifier
 from quick_insight.infrastructure.transform_sql import compile_transform_query
@@ -453,6 +459,243 @@ class WorkspaceDatabase:
                 [corpus_id],
             ).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
+
+    def list_category_audit(
+        self,
+        corpus_id: str,
+        *,
+        limit: int = 100,
+    ) -> tuple[CategoryAuditRecord, ...]:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            rows = connection.execute(
+                """
+                SELECT
+                    id, corpus_id, action, source_category_id, source_category_name,
+                    target_category_id, target_category_name, affected_record_count,
+                    note, created_at, schema_version
+                FROM text_category_audit
+                WHERE corpus_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                [corpus_id, limit],
+            ).fetchall()
+        return tuple(_category_audit_from_row(row) for row in rows)
+
+    def rename_category(
+        self,
+        corpus_id: str,
+        category_id: str,
+        *,
+        new_name: str,
+        new_description: str,
+        audit_id: str,
+        note: str,
+        changed_at: datetime,
+    ) -> CategoryAuditRecord:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                category = _fetch_category_by_id(connection, category_id)
+                if category is None:
+                    raise ValueError(f"Category does not exist: {category_id}")
+                duplicate = connection.execute(
+                    """
+                    SELECT id
+                    FROM text_categories
+                    WHERE LOWER(name) = LOWER(?) AND id <> ?
+                    """,
+                    [new_name, category_id],
+                ).fetchone()
+                if duplicate is not None:
+                    raise ValueError(f"Category name already exists: {new_name}")
+                outside_count = _text_category_usage_outside_corpus_count(
+                    connection,
+                    corpus_id,
+                    category_id,
+                )
+                if outside_count:
+                    raise ValueError(
+                        "Category is used by another text corpus "
+                        f"({outside_count} records)."
+                    )
+                affected_count = _text_category_usage_count(
+                    connection,
+                    corpus_id,
+                    category_id,
+                )
+                connection.execute(
+                    """
+                    UPDATE text_categories
+                    SET name = ?, description = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    [new_name, new_description, changed_at, category_id],
+                )
+                audit = CategoryAuditRecord(
+                    id=audit_id,
+                    corpus_id=corpus_id,
+                    action="rename",
+                    source_category_id=category.id,
+                    source_category_name=category.name,
+                    target_category_id=category.id,
+                    target_category_name=new_name,
+                    affected_record_count=affected_count,
+                    note=note,
+                    created_at=changed_at,
+                )
+                _insert_category_audit(connection, audit)
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        return audit
+
+    def merge_categories(
+        self,
+        corpus_id: str,
+        source_category_id: str,
+        target_category_id: str,
+        *,
+        audit_id: str,
+        note: str,
+        changed_at: datetime,
+    ) -> CategoryAuditRecord:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                if source_category_id == target_category_id:
+                    raise ValueError("Source and target category must be different.")
+                source = _fetch_category_by_id(connection, source_category_id)
+                target = _fetch_category_by_id(connection, target_category_id)
+                if source is None:
+                    raise ValueError(f"Source category does not exist: {source_category_id}")
+                if target is None:
+                    raise ValueError(f"Target category does not exist: {target_category_id}")
+                outside_count = _text_category_usage_outside_corpus_count(
+                    connection,
+                    corpus_id,
+                    source_category_id,
+                )
+                if outside_count:
+                    raise ValueError(
+                        "Source category is used by another text corpus "
+                        f"({outside_count} records)."
+                    )
+                affected_count = _text_category_usage_count(
+                    connection,
+                    corpus_id,
+                    source_category_id,
+                )
+                connection.execute(
+                    """
+                    UPDATE text_records
+                    SET primary_category_id = ?, updated_at = ?
+                    WHERE corpus_id = ? AND primary_category_id = ?
+                    """,
+                    [target_category_id, changed_at, corpus_id, source_category_id],
+                )
+                connection.execute(
+                    "DELETE FROM text_categories WHERE id = ?",
+                    [source_category_id],
+                )
+                audit = CategoryAuditRecord(
+                    id=audit_id,
+                    corpus_id=corpus_id,
+                    action="merge",
+                    source_category_id=source.id,
+                    source_category_name=source.name,
+                    target_category_id=target.id,
+                    target_category_name=target.name,
+                    affected_record_count=affected_count,
+                    note=note,
+                    created_at=changed_at,
+                )
+                _insert_category_audit(connection, audit)
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        return audit
+
+    def delete_category(
+        self,
+        corpus_id: str,
+        category_id: str,
+        *,
+        replacement_category_id: str | None,
+        audit_id: str,
+        note: str,
+        changed_at: datetime,
+    ) -> CategoryAuditRecord:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                category = _fetch_category_by_id(connection, category_id)
+                if category is None:
+                    raise ValueError(f"Category does not exist: {category_id}")
+                if replacement_category_id == category_id:
+                    raise ValueError("Replacement category must be different.")
+                replacement = (
+                    _fetch_category_by_id(connection, replacement_category_id)
+                    if replacement_category_id is not None
+                    else None
+                )
+                if replacement_category_id is not None and replacement is None:
+                    raise ValueError(
+                        f"Replacement category does not exist: {replacement_category_id}"
+                    )
+                outside_count = _text_category_usage_outside_corpus_count(
+                    connection,
+                    corpus_id,
+                    category_id,
+                )
+                if outside_count:
+                    raise ValueError(
+                        "Category is used by another text corpus "
+                        f"({outside_count} records)."
+                    )
+                affected_count = _text_category_usage_count(
+                    connection,
+                    corpus_id,
+                    category_id,
+                )
+                connection.execute(
+                    """
+                    UPDATE text_records
+                    SET primary_category_id = ?, updated_at = ?
+                    WHERE corpus_id = ? AND primary_category_id = ?
+                    """,
+                    [replacement_category_id, changed_at, corpus_id, category_id],
+                )
+                connection.execute(
+                    "DELETE FROM text_categories WHERE id = ?",
+                    [category_id],
+                )
+                audit = CategoryAuditRecord(
+                    id=audit_id,
+                    corpus_id=corpus_id,
+                    action="delete_to_category"
+                    if replacement_category_id is not None
+                    else "delete_to_uncategorized",
+                    source_category_id=category.id,
+                    source_category_name=category.name,
+                    target_category_id=replacement.id if replacement is not None else None,
+                    target_category_name=replacement.name if replacement is not None else None,
+                    affected_record_count=affected_count,
+                    note=note,
+                    created_at=changed_at,
+                )
+                _insert_category_audit(connection, audit)
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        return audit
 
     def export_text_corpus_to_csv(self, corpus_id: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2008,6 +2251,23 @@ class WorkspaceDatabase:
             connection.execute(
                 "ALTER TABLE text_record_tags ADD COLUMN tag_order INTEGER DEFAULT 0"
             )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS text_category_audit (
+                id VARCHAR PRIMARY KEY,
+                corpus_id VARCHAR NOT NULL,
+                action VARCHAR NOT NULL,
+                source_category_id VARCHAR,
+                source_category_name VARCHAR NOT NULL,
+                target_category_id VARCHAR,
+                target_category_name VARCHAR,
+                affected_record_count INTEGER NOT NULL,
+                note VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                schema_version INTEGER NOT NULL
+            )
+            """
+        )
 
     def _numeric_stats(
         self,
@@ -2234,6 +2494,99 @@ def _category_from_row(row: tuple[Any, ...]) -> Category:
         created_at=_datetime_or_none(row[4]) or datetime.min,
         updated_at=_datetime_or_none(row[5]) or datetime.min,
         schema_version=int(row[6]),
+    )
+
+
+def _category_audit_from_row(row: tuple[Any, ...]) -> CategoryAuditRecord:
+    return CategoryAuditRecord(
+        id=str(row[0]),
+        corpus_id=str(row[1]),
+        action=str(row[2]),
+        source_category_id=str(row[3]) if row[3] is not None else None,
+        source_category_name=str(row[4]),
+        target_category_id=str(row[5]) if row[5] is not None else None,
+        target_category_name=str(row[6]) if row[6] is not None else None,
+        affected_record_count=int(row[7]),
+        note=str(row[8] or ""),
+        created_at=_datetime_or_none(row[9]) or datetime.min,
+        schema_version=int(row[10]),
+    )
+
+
+def _fetch_category_by_id(
+    connection: duckdb.DuckDBPyConnection,
+    category_id: str | None,
+) -> Category | None:
+    if category_id is None:
+        return None
+    row = connection.execute(
+        """
+        SELECT id, name, description, color, created_at, updated_at, schema_version
+        FROM text_categories
+        WHERE id = ?
+        """,
+        [category_id],
+    ).fetchone()
+    return _category_from_row(row) if row is not None else None
+
+
+def _text_category_usage_count(
+    connection: duckdb.DuckDBPyConnection,
+    corpus_id: str,
+    category_id: str,
+) -> int:
+    row = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM text_records
+        WHERE corpus_id = ? AND primary_category_id = ?
+        """,
+        [corpus_id, category_id],
+    ).fetchone()
+    return int(row[0] or 0) if row is not None else 0
+
+
+def _text_category_usage_outside_corpus_count(
+    connection: duckdb.DuckDBPyConnection,
+    corpus_id: str,
+    category_id: str,
+) -> int:
+    row = connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM text_records
+        WHERE corpus_id <> ? AND primary_category_id = ?
+        """,
+        [corpus_id, category_id],
+    ).fetchone()
+    return int(row[0] or 0) if row is not None else 0
+
+
+def _insert_category_audit(
+    connection: duckdb.DuckDBPyConnection,
+    audit: CategoryAuditRecord,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO text_category_audit (
+            id, corpus_id, action, source_category_id, source_category_name,
+            target_category_id, target_category_name, affected_record_count,
+            note, created_at, schema_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            audit.id,
+            audit.corpus_id,
+            audit.action,
+            audit.source_category_id,
+            audit.source_category_name,
+            audit.target_category_id,
+            audit.target_category_name,
+            audit.affected_record_count,
+            audit.note,
+            audit.created_at,
+            audit.schema_version,
+        ],
     )
 
 

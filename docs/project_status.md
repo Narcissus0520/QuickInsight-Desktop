@@ -5,8 +5,8 @@ Date: 2026-07-13
 ## Current Version And Milestone
 
 - Version: `0.0.0`
-- Milestone: M5 transforms and project persistence is active
-- Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted; M3 explainable chart recommendation accepted; M4 chart workspace and export accepted.
+- Milestone: M6 performance, hardening, and release is active
+- Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted; M3 explainable chart recommendation accepted; M4 chart workspace and export accepted; M5 transforms and project persistence accepted.
 
 ## Completed Work
 
@@ -42,10 +42,11 @@ Date: 2026-07-13
 - Added main-window project open/save/save-as actions: project operations run in background jobs, imported tabular/text datasets and derived transform preview tables are tracked as project entries, reopened projects restore DuckDB-backed table previews or text labeling state, and missing/mismatched source files are surfaced as user-visible warnings.
 - Added a user-facing source relocation dialog for missing or mismatched external source files. The dialog lists affected datasets, lets the user choose the moved original file, validates saved size and content sample evidence before updating the in-memory manifest, and keeps the relocation toolbar action disabled when no source issue remains.
 - Added processed-data export: the active imported or transformed tabular table can be exported to CSV or Parquet, active text corpora can be exported to JSONL or CSV with category/tag metadata, exports run in background jobs, temporary files are completed before final rename, and existing target files are refused by default.
+- Added safe text category governance: category rename/merge/delete operations run in DuckDB transactions, expose affected-record counts and descriptions in the text-labeling UI, preserve text content privacy in audit records, reject cross-corpus category changes when another corpus still references the category, and persist audit metadata in `text_category_audit`.
 
 ## Remaining Work
 
-- Add safe category rename/merge/delete audit for text labels.
+- Begin M6 benchmarks, memory/cache cleanup, accessibility/DPI pass, security review, packaged smoke tests, installer/portable ZIP, license notices, and release documentation.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
@@ -56,7 +57,7 @@ Date: 2026-07-13
 - Source relocation updates the currently opened project manifest after evidence validation; users must still save the project to persist the updated source path into the `.qiproject` file.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
-- Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
+- Text category governance audit is persisted and covered by service/UI tests; a dedicated audit-history browser is not yet implemented.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
 
 ## Latest Test And Build Results
@@ -136,7 +137,13 @@ Date: 2026-07-13
 - M5 processed data export targeted `mypy src\quick_insight`: exit 0; no issues found in 51 source files.
 - M5 processed data export `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 51 source files, pytest passed 89 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 processed data export `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M5 category governance targeted `.\.venv\Scripts\python.exe -m ruff check src\quick_insight\domain\models.py src\quick_insight\application\text_labeling.py src\quick_insight\infrastructure\workspace.py src\quick_insight\ui\main_window.py tests\integration\test_text_labeling.py tests\ui\test_main_window.py`: exit 0; all checks passed.
+- M5 category governance targeted `.\.venv\Scripts\python.exe -m mypy src\quick_insight`: exit 0; no issues found in 51 source files.
+- M5 category governance targeted `.\.venv\Scripts\python.exe -m pytest tests\integration\test_text_labeling.py tests\ui\test_main_window.py -k "text_labeling"`: exit 0; 5 tests passed and 20 were deselected.
+- M5 category governance UI stability targeted `.\.venv\Scripts\python.exe -m pytest tests\ui\test_main_window.py`: exit 0; 22 tests passed.
+- M5 category governance `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 51 source files, pytest passed 92 tests on Python 3.13.14 / PySide6 6.11.1.
+- M5 category governance `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Add safe category rename/merge/delete audit for text labels.
+Begin M6 with benchmarks and memory/cache cleanup.

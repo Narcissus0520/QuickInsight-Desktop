@@ -25,7 +25,7 @@ from quick_insight.application.project import (
     ProjectPersistenceService,
     validate_source_references,
 )
-from quick_insight.application.text_corpus import TextCorpusService
+from quick_insight.application.text_corpus import TextCorpusService, TextImportOptions
 from quick_insight.charts import ChartExportFormat, ChartExportResult
 from quick_insight.charts.security import classify_chart_request
 from quick_insight.domain.enums import DatasetKind
@@ -53,6 +53,17 @@ def _set_combo_data(combo: QComboBox, value: str) -> None:
     index = combo.findData(value)
     assert index >= 0
     combo.setCurrentIndex(index)
+
+
+def _wait_for_text_labeling_idle(
+    qtbot,
+    window: MainWindow,
+    timeout: int = 6000,
+) -> None:  # type: ignore[no-untyped-def]
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=timeout)
+    model = window._text_label_model
+    if model is not None:
+        qtbot.waitUntil(lambda: model.pending_page_count() == 0, timeout=timeout)
 
 
 def test_main_window_constructs_workspace_shell(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -242,7 +253,7 @@ def test_main_window_exports_current_tabular_and_text_data(
     payloads = [json.loads(line) for line in text_export.read_text(encoding="utf-8").splitlines()]
     assert {payload["content"] for payload in payloads} == {"第一条", "第二条"}
     assert "数据已导出" in window.findChild(QLabel, "errorLabel").text()
-    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+    _wait_for_text_labeling_idle(qtbot, window)
 
 
 def test_main_window_saves_and_opens_qiproject_with_dataset_state(
@@ -265,7 +276,7 @@ def test_main_window_saves_and_opens_qiproject_with_dataset_state(
     qtbot.addWidget(window)
     window._show_import_result(tabular_result)
     window._show_text_corpus_result(text_result)
-    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+    _wait_for_text_labeling_idle(qtbot, window)
     project_path = tmp_path / "saved.qiproject"
 
     window._save_project_to_path(project_path)
@@ -279,7 +290,7 @@ def test_main_window_saves_and_opens_qiproject_with_dataset_state(
 
     reopened._open_project_from_path(project_path)
     qtbot.waitUntil(lambda: reopened._running_project_job is None, timeout=6000)
-    qtbot.waitUntil(lambda: reopened._running_profile_job is None, timeout=6000)
+    _wait_for_text_labeling_idle(qtbot, reopened)
 
     assert reopened.findChild(QListWidget, "datasetList").count() == 2
     assert reopened._current_tabular_table_name == tabular_result.table_name
@@ -626,8 +637,47 @@ def test_text_labeling_workspace_edits_record_and_filters(qtbot, tmp_path) -> No
     filtered_model.data(filtered_model.index(0, 0))
     qtbot.waitUntil(lambda: filtered_model.cached_page_count() == 1, timeout=3000)
     assert "告警" in filtered_model.data(filtered_model.index(0, 0))
-    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=3000)
+    _wait_for_text_labeling_idle(qtbot, window, timeout=3000)
     qtbot.waitUntil(lambda: filtered_model.pending_page_count() == 0, timeout=3000)
+
+
+def test_text_labeling_category_rename_updates_ui_and_audit(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TextCorpusService(workspace)
+    result = service.import_preview(
+        service.preview_text(
+            "第一条安装反馈\n第二条安装反馈",
+            display_name="文本语料",
+            options=TextImportOptions(default_category="待整理"),
+        )
+    )
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+
+    window._show_text_corpus_result(result)
+    manage_combo = window.findChild(QComboBox, "categoryManageCombo")
+    name_edit = window.findChild(QLineEdit, "categoryNameEdit")
+    description_edit = window.findChild(QLineEdit, "categoryDescriptionEdit")
+    rename_button = window.findChild(QPushButton, "categoryRenameButton")
+    qtbot.waitUntil(lambda: rename_button.isEnabled(), timeout=3000)
+
+    assert "待整理" in manage_combo.currentText()
+    name_edit.setText("安装问题")
+    description_edit.setText("安装阶段反馈")
+    rename_button.click()
+
+    qtbot.waitUntil(
+        lambda: "分类已重命名" in window.findChild(QLabel, "textLabelStatus").text(),
+        timeout=3000,
+    )
+    categories = {category.name: category for category in workspace.list_categories()}
+    assert categories["安装问题"].description == "安装阶段反馈"
+    assert "安装问题" in manage_combo.currentText()
+    audit = workspace.list_category_audit(result.handle.cache_key or "")
+    assert audit[0].action == "rename"
+    assert audit[0].affected_record_count == 2
+    _wait_for_text_labeling_idle(qtbot, window, timeout=3000)
 
 
 def test_import_dialog_shows_bad_csv_encoding_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
