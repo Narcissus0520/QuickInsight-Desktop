@@ -38,10 +38,11 @@ Date: 2026-07-13
 - Completed M4 real chart data preparation for box plots, correlation heatmaps, and current text-corpus chart specs. Box plots use DuckDB grouped quantiles, correlation heatmaps use DuckDB Pearson matrices, and text charts use persisted `text_records`, `text_categories`, and `text_record_tags` tables instead of renderer previews.
 - Added the first M5 transform foundation: typed `TransformStep` execution through `TabularTransformService`, restricted transform SQL compilation, and non-destructive DuckDB preview materialization for select/rename, safe type conversion, AND/OR filters, sorting, deduplication, missing-value drop/fill, and group aggregation.
 - Completed the M5 no-code transform UI slice: the right-panel transform page now creates safe `TransformStep` objects for field selection/rename, filters, sorting, deduplication, missing-value drop/fill, safe type conversion, and group aggregation; lossy operations require confirmation, preview runs in a cancellable background job, and successful previews activate a new local DuckDB table without mutating the source table.
+- Added the first `.qiproject` persistence foundation: versioned project manifests, atomic ZIP packages containing `manifest.json` and `project.duckdb`, safe archive path/size checks, workspace restore, source-file evidence validation, and guarded source relocation.
 
 ## Remaining Work
 
-- Add `.qiproject` save/reopen with source relocation.
+- Wire `.qiproject` save/open actions into the main window and restore project dataset state.
 - Add processed data and text export.
 - Add safe category rename/merge/delete audit for text labels.
 - Continue committing once per completed milestone or coherent stage.
@@ -50,8 +51,8 @@ Date: 2026-07-13
 
 - Full packaging is intentionally deferred to M6.
 - SVG/PNG export requires a loaded desktop `QWebEngineView`; offscreen automated tests cover HTML/JSON export and the `toImage` bridge script rather than executing browser image capture.
-- Transform history is currently visible as pending UI steps and preview-table lineage only; durable transform/project history awaits `.qiproject` persistence.
-- Project persistence is not implemented yet.
+- Transform history is currently visible as pending UI steps and preview-table lineage only; durable transform/project history awaits main-window project state wiring.
+- Project package persistence exists as an application service with integration tests; main-window save/open actions are not connected yet.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
 - Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
@@ -120,7 +121,9 @@ Date: 2026-07-13
 - M5 transform foundation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M5 no-code transform UI slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 48 source files, pytest passed 80 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 no-code transform UI slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M5 `.qiproject` persistence foundation slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 49 source files, pytest passed 83 tests on Python 3.13.14 / PySide6 6.11.1.
+- M5 `.qiproject` persistence foundation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Add `.qiproject` save/reopen with source relocation.
+Wire `.qiproject` save/open actions into the main window and restore project dataset state.

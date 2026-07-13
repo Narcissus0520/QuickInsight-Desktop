@@ -26,4 +26,5 @@
 - Completed M4 chart data preparation for box plots, correlation heatmaps, and current text-corpus chart specs, including text category/status/source/keyword/category-keyword/tag-cooccurrence charts.
 - Added the first M5 transform foundation: safe transform steps, restricted DuckDB SQL compilation, non-destructive preview materialization, and tests for select/rename/filter/sort/deduplicate/missing/type-conversion/group aggregation paths.
 - Added a right-panel no-code transform UI for tabular datasets with field selection/rename, filters, sorting, deduplication, missing-value handling, type conversion, group aggregation, lossy-operation confirmation, background preview, cancellation, and non-destructive preview table activation.
-- Advanced category governance, project persistence, and processed export remain future milestones.
+- Added the first `.qiproject` persistence foundation: versioned ZIP project packages with `manifest.json` and `project.duckdb`, atomic save/open, safe archive path and size checks, source-file evidence validation, and guarded source relocation.
+- Main-window project save/open actions, advanced category governance, and processed export remain future milestones.

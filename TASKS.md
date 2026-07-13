@@ -64,6 +64,9 @@ M5 is active.
   - [x] Safe transform specification, SQL compiler, and DuckDB preview materialization.
   - [x] GUI transform panel with preview/confirmation for lossy operations.
 - [ ] `.qiproject` save/reopen with source relocation.
+  - [x] Versioned `.qiproject` package service with manifest and `project.duckdb`.
+  - [x] Safe archive validation plus source evidence validation/relocation.
+  - [ ] Main-window save/open actions and project state restoration.
 - [ ] Processed data and text export.
 - [ ] Safe category rename/merge/delete audit for text labels.
 
