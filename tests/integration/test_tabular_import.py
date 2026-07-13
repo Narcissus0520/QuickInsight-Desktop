@@ -21,6 +21,13 @@ def test_tabular_import_writes_duckdb_and_reads_pages(tmp_path) -> None:  # type
     assert result.handle.source_path == source.resolve()
     assert [column.name for column in result.columns] == ["name", "amount"]
     assert workspace.fetch_page(result.table_name, limit=1, offset=1) == (("beta", 2),)
+    assert result.handle.cache_key is not None
+    assert pl.read_parquet(result.handle.cache_key).shape == (2, 2)
+    assert service.is_source_current(result.handle)
+
+    source.write_text("name,amount\nalpha,9\nbeta,2\n", encoding="utf-8")
+
+    assert not service.is_source_current(result.handle)
 
 
 def test_parquet_import_writes_duckdb_and_reads_pages(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -35,6 +42,7 @@ def test_parquet_import_writes_duckdb_and_reads_pages(tmp_path) -> None:  # type
     assert result.handle.row_count == 2
     assert [column.name for column in result.columns] == ["name", "amount"]
     assert workspace.fetch_page(result.table_name, limit=2, offset=0) == (("alpha", 1), ("beta", 2))
+    assert result.handle.import_options["normalized_cache_path"] == result.handle.cache_key
 
 
 def test_excel_import_uses_calamine_preview_path(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -49,3 +57,5 @@ def test_excel_import_uses_calamine_preview_path(tmp_path) -> None:  # type: ign
     assert preview.options["engine"] == "calamine"
     assert result.handle.row_count == 1
     assert workspace.fetch_page(result.table_name, limit=1, offset=0) == (("alpha", 1),)
+    assert result.handle.cache_key is not None
+    assert pl.read_parquet(result.handle.cache_key).shape == (1, 2)

@@ -7,4 +7,5 @@
 - Fixed the development setup script for Windows PowerShell argument quoting and validated M0 on CPython 3.13.14 x64.
 - Added the first M1 tabular import slice: CSV/TSV detection, preview confirmation dialog, DuckDB workspace import, and paged `QTableView` preview.
 - Added Excel/Parquet preview and confirmed-import paths using Polars, DuckDB, and `fastexcel` for the Calamine Excel engine.
+- Added normalized Parquet cache export and source fingerprint invalidation checks for confirmed tabular imports.
 - Packaging, import, analysis, charting, transforms, and project persistence remain future milestones.

@@ -60,6 +60,14 @@ class WorkspaceDatabase:
             )
             connection.unregister("_quick_insight_import_frame")
 
+    def export_table_to_parquet(self, table_name: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.execute(
+                f"COPY {quote_identifier(table_name)} TO ? (FORMAT PARQUET)",
+                [str(destination)],
+            )
+
     def row_count(self, table_name: str) -> int:
         with self._connect() as connection:
             row = connection.execute(

@@ -20,7 +20,7 @@ M1 is active.
 - [x] CSV/TSV import wizard with preview/confirmation.
 - [x] Excel and Parquet preview path.
 - [x] DuckDB workspace for confirmed CSV/TSV imports.
-- [ ] Normalized Parquet cache and source invalidation.
+- [x] Normalized Parquet cache and source invalidation.
 - [x] Safe paged table model backed by DuckDB.
 - [ ] Background import/query jobs with cancellation and clear errors.
 

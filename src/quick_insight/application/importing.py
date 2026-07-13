@@ -32,8 +32,13 @@ class TabularImportResult:
 
 
 class TabularImportService:
-    def __init__(self, workspace: WorkspaceDatabase) -> None:
+    def __init__(
+        self,
+        workspace: WorkspaceDatabase,
+        normalized_cache_dir: Path | None = None,
+    ) -> None:
         self._workspace = workspace
+        self._normalized_cache_dir = normalized_cache_dir or workspace.path.parent / "normalized"
 
     def preview_csv(
         self,
@@ -85,28 +90,23 @@ class TabularImportService:
         if context is not None:
             context.progress(10, "正在计算源文件指纹")
         fingerprint = fingerprint_file(preview.path)
-        dataset_id = fingerprint[:16]
         table_name = table_name_for_fingerprint(fingerprint)
         if context is not None:
             context.progress(35, "正在写入本地 DuckDB 工作区")
         self._workspace.import_csv(preview.path, table_name, preview.options)
         if context is not None:
             context.progress(80, "正在读取表结构")
-        columns = self._workspace.columns(table_name)
-        row_count = self._workspace.row_count(table_name)
-        handle = DatasetHandle(
-            id=dataset_id,
-            kind=DatasetKind.TABULAR,
-            display_name=display_name or preview.path.name,
-            source_path=preview.path,
-            workspace_path=self._workspace.path,
-            row_count=row_count,
-            column_count=len(columns),
-            import_options=preview.options.to_dict(),
-            fingerprint=fingerprint,
-            cache_key=table_name,
-        )
-        return TabularImportResult(handle=handle, table_name=table_name, columns=columns)
+        return self._result_from_table(preview, display_name, fingerprint, table_name)
+
+    def is_source_current(self, handle: DatasetHandle) -> bool:
+        if handle.source_path is None or handle.fingerprint is None:
+            return False
+        if not handle.source_path.exists():
+            return False
+        return fingerprint_file(handle.source_path) == handle.fingerprint
+
+    def normalized_cache_path(self, fingerprint: str) -> Path:
+        return self._normalized_cache_dir / f"{fingerprint[:16]}.parquet"
 
     def _import_parquet(
         self,
@@ -157,6 +157,11 @@ class TabularImportService:
     ) -> TabularImportResult:
         columns = self._workspace.columns(table_name)
         row_count = self._workspace.row_count(table_name)
+        normalized_cache = self._write_normalized_cache(table_name, fingerprint)
+        import_options = {
+            **_preview_options(preview),
+            "normalized_cache_path": str(normalized_cache),
+        }
         handle = DatasetHandle(
             id=fingerprint[:16],
             kind=DatasetKind.TABULAR,
@@ -165,11 +170,16 @@ class TabularImportService:
             workspace_path=self._workspace.path,
             row_count=row_count,
             column_count=len(columns),
-            import_options=_preview_options(preview),
+            import_options=import_options,
             fingerprint=fingerprint,
-            cache_key=table_name,
+            cache_key=str(normalized_cache),
         )
         return TabularImportResult(handle=handle, table_name=table_name, columns=columns)
+
+    def _write_normalized_cache(self, table_name: str, fingerprint: str) -> Path:
+        destination = self.normalized_cache_path(fingerprint)
+        self._workspace.export_table_to_parquet(table_name, destination)
+        return destination
 
 
 def _preview_options(preview: TabularPreview) -> dict[str, object]:
