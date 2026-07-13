@@ -42,7 +42,7 @@ M2 is accepted.
 
 M3 is next.
 
-- [ ] Deterministic rule scoring.
+- [x] Deterministic rule scoring.
 - [ ] Recommendation cards with reasons, warnings, and data budget.
 - [ ] Tabular and text chart recommendation tests.
 

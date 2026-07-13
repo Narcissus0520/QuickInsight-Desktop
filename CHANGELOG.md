@@ -17,4 +17,5 @@
 - Added text corpus entry/import preview, TXT/Markdown/JSONL splitting, category/tag/source defaults, and DuckDB persistence for text records, categories, and tags.
 - Added text corpus profiling and quality checks for category/tag/source counts, text lengths, duplicates, category conflicts, keyword matches, surface token frequencies, and tag co-occurrence.
 - Added a virtualized text labeling workspace with paged `QTableView` records, search/category filters, inline category creation, detail editing, save-next, undo, and bulk category/tag updates.
-- Packaging, charting, transforms, advanced category governance, and project persistence remain future milestones.
+- Added deterministic chart recommendation rule scoring with score breakdowns, reasons, warnings, data budgets, and tabular/text rule coverage.
+- Recommendation cards, chart rendering/export, transforms, advanced category governance, and project persistence remain future milestones.
