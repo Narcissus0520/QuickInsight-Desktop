@@ -25,18 +25,18 @@ Date: 2026-07-13
 - Added the first M2 slice: DuckDB-backed full-scan column statistics, deterministic semantic type inference, dataset/profile warnings, and unit/integration tests.
 - Added tabular quality checks for duplicate rows, missing values, constants, mixed-type hints, datetime ranges, IQR outlier candidates, and strict-import parse-failure status.
 - Added quality-focused `AnalysisFinding` output with reproducible evidence and a GUI overview page that profiles imported datasets in a background job.
+- Added one-click tabular analysis findings for time trends, numeric correlations, and category group differences; every finding records DuckDB evidence and explicitly avoids causation claims.
 
 ## Remaining Work
 
-- Add one-click analysis findings for trends, correlations, and group differences.
 - Begin text entry/import/splitting and category/tag persistence.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
-- One-click analysis, charting, transforms, and project persistence are not implemented yet.
-- Profile UI currently shows quality-focused overview only; chart recommendations and analysis intent flows are still future milestones.
+- Charting, transforms, and project persistence are not implemented yet.
+- Profile UI currently shows quality and one-click analysis findings only; chart recommendations and analysis intent flows are still future milestones.
 - Text corpus workflows are not implemented yet.
 
 ## Latest Test And Build Results
@@ -75,7 +75,9 @@ Date: 2026-07-13
 - M2 tabular profiling slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M2 tabular quality/profile UI slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 35 source files, pytest passed 38 tests on Python 3.13.14 / PySide6 6.11.1.
 - M2 tabular quality/profile UI slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M2 one-click tabular analysis slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 36 source files, pytest passed 40 tests on Python 3.13.14 / PySide6 6.11.1.
+- M2 one-click tabular analysis slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Continue M2 with one-click analysis findings for trends, correlations, and group differences.
+Continue M2 with text entry/import/splitting and category/tag persistence.

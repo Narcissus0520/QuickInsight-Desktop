@@ -33,7 +33,7 @@ M2 is active.
 - [x] Basic tabular semantic type inference and DuckDB-backed profile service.
 - [x] Tabular quality checks, duplicate detection, parse-failure reporting, and profile UI integration.
 - [x] Quality-focused structured findings with reproducible evidence.
-- [ ] One-click analysis findings for trends, correlations, and group differences.
+- [x] One-click analysis findings for trends, correlations, and group differences.
 - [ ] Text entry/import/splitting and category/tag persistence.
 - [ ] Virtualized text labeling workspace.
 

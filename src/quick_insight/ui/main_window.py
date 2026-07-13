@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from quick_insight import APP_NAME_ZH
+from quick_insight.application.analysis import TabularAnalysisService
 from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
 from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
@@ -282,7 +284,7 @@ class MainWindow(QMainWindow):
         fields_title.setObjectName("sectionTitle")
         self._profile_fields.setObjectName("profileFieldsList")
 
-        findings_title = QLabel("质量发现")
+        findings_title = QLabel("质量与分析发现")
         findings_title.setObjectName("sectionTitle")
         self._profile_findings.setObjectName("profileFindingsList")
 
@@ -412,8 +414,13 @@ class MainWindow(QMainWindow):
             table_name,
             import_options=import_options,
         )
+        context.progress(70, "正在生成一键分析发现")
+        analysis_findings = TabularAnalysisService(self._workspace).analyze_table(
+            table_name,
+            profile,
+        )
         context.progress(90, "正在整理画像结果")
-        return profile
+        return replace(profile, findings=profile.findings + analysis_findings)
 
     def _on_profile_progress(self, progress: JobProgress) -> None:
         if self._is_disposed:

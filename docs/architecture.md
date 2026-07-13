@@ -9,7 +9,7 @@ The application uses a layered package under `src/quick_insight/`.
 - `ui`: Qt Widgets windows, pages, themes, models, and presenters.
 - `resources`: icons, local web assets, translations, and bundled samples.
 
-The UI keeps handlers thin and routes data work through application services and infrastructure adapters. DuckDB SQL stays centralized in `infrastructure.workspace`, where identifiers are quoted and values are parameterized. M1 added confirmed tabular imports, normalized Parquet cache writing, and background paged preview. M2 profiling currently uses full-scan DuckDB statistics for semantic inference, quality checks, reproducible `AnalysisFinding` objects, and a background overview page after import.
+The UI keeps handlers thin and routes data work through application services and infrastructure adapters. DuckDB SQL stays centralized in `infrastructure.workspace`, where identifiers are quoted and values are parameterized. M1 added confirmed tabular imports, normalized Parquet cache writing, and background paged preview. M2 profiling currently uses full-scan DuckDB statistics for semantic inference, quality checks, trend/correlation/group-difference analysis, reproducible `AnalysisFinding` objects, and a background overview page after import.
 
 ## Dependency Decisions
 

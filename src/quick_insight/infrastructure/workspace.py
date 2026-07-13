@@ -40,6 +40,43 @@ class WorkspaceColumnStats:
     top_values: tuple[tuple[str, int], ...] = ()
 
 
+@dataclass(frozen=True)
+class WorkspaceCorrelationStats:
+    left_column: str
+    right_column: str
+    row_count: int
+    correlation: float | None
+
+
+@dataclass(frozen=True)
+class WorkspaceTrendStats:
+    time_column: str
+    numeric_column: str
+    row_count: int
+    correlation: float | None
+    slope_per_day: float | None
+    first_time: Any | None
+    last_time: Any | None
+    first_value: float | None
+    last_value: float | None
+
+
+@dataclass(frozen=True)
+class WorkspaceGroupDifferenceStats:
+    category_column: str
+    numeric_column: str
+    row_count: int
+    category_count: int
+    top_category: str
+    top_mean: float
+    top_count: int
+    bottom_category: str
+    bottom_mean: float
+    bottom_count: int
+    mean_difference: float
+    mean_ratio: float | None
+
+
 class WorkspaceDatabase:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -271,6 +308,173 @@ class WorkspaceDatabase:
             numeric_like_count=numeric_like_count,
             datetime_like_count=datetime_like_count,
             top_values=tuple((str(row[0]), int(row[1])) for row in top_rows),
+        )
+
+    def correlation_stats(
+        self,
+        table_name: str,
+        left_column: WorkspaceColumn,
+        right_column: WorkspaceColumn,
+    ) -> WorkspaceCorrelationStats:
+        table_sql = quote_identifier(table_name)
+        left_sql = quote_identifier(left_column.name)
+        right_sql = quote_identifier(right_column.name)
+        with self._connect() as connection:
+            row = connection.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS row_count,
+                    CORR(CAST({left_sql} AS DOUBLE), CAST({right_sql} AS DOUBLE))
+                FROM {table_sql}
+                WHERE {left_sql} IS NOT NULL
+                  AND {right_sql} IS NOT NULL
+                """
+            ).fetchone()
+        row_count = int(row[0] or 0) if row is not None else 0
+        correlation = float(row[1]) if row is not None and row[1] is not None else None
+        return WorkspaceCorrelationStats(
+            left_column=left_column.name,
+            right_column=right_column.name,
+            row_count=row_count,
+            correlation=correlation,
+        )
+
+    def trend_stats(
+        self,
+        table_name: str,
+        time_column: WorkspaceColumn,
+        numeric_column: WorkspaceColumn,
+    ) -> WorkspaceTrendStats:
+        table_sql = quote_identifier(table_name)
+        time_sql = quote_identifier(time_column.name)
+        numeric_sql = quote_identifier(numeric_column.name)
+        with self._connect() as connection:
+            summary_row = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({time_sql} AS TIMESTAMP) AS time_value,
+                        CAST({numeric_sql} AS DOUBLE) AS numeric_value
+                    FROM {table_sql}
+                    WHERE {time_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                )
+                SELECT
+                    COUNT(*) AS row_count,
+                    CORR(EPOCH(time_value), numeric_value) AS correlation,
+                    REGR_SLOPE(numeric_value, EPOCH(time_value)) * 86400 AS slope_per_day,
+                    MIN(time_value) AS first_time,
+                    MAX(time_value) AS last_time
+                FROM clean
+                """
+            ).fetchone()
+            first_row = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({time_sql} AS TIMESTAMP) AS time_value,
+                        CAST({numeric_sql} AS DOUBLE) AS numeric_value
+                    FROM {table_sql}
+                    WHERE {time_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                )
+                SELECT numeric_value
+                FROM clean
+                ORDER BY time_value ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            last_row = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({time_sql} AS TIMESTAMP) AS time_value,
+                        CAST({numeric_sql} AS DOUBLE) AS numeric_value
+                    FROM {table_sql}
+                    WHERE {time_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                )
+                SELECT numeric_value
+                FROM clean
+                ORDER BY time_value DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        row_count = int(summary_row[0] or 0) if summary_row is not None else 0
+        correlation = (
+            float(summary_row[1])
+            if summary_row is not None and summary_row[1] is not None
+            else None
+        )
+        slope_per_day = (
+            float(summary_row[2])
+            if summary_row is not None and summary_row[2] is not None
+            else None
+        )
+        return WorkspaceTrendStats(
+            time_column=time_column.name,
+            numeric_column=numeric_column.name,
+            row_count=row_count,
+            correlation=correlation,
+            slope_per_day=slope_per_day,
+            first_time=summary_row[3] if summary_row is not None else None,
+            last_time=summary_row[4] if summary_row is not None else None,
+            first_value=(
+                float(first_row[0]) if first_row is not None and first_row[0] is not None else None
+            ),
+            last_value=(
+                float(last_row[0]) if last_row is not None and last_row[0] is not None else None
+            ),
+        )
+
+    def group_difference_stats(
+        self,
+        table_name: str,
+        category_column: WorkspaceColumn,
+        numeric_column: WorkspaceColumn,
+        *,
+        min_group_count: int = 2,
+    ) -> WorkspaceGroupDifferenceStats | None:
+        table_sql = quote_identifier(table_name)
+        category_sql = quote_identifier(category_column.name)
+        numeric_sql = quote_identifier(numeric_column.name)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    CAST({category_sql} AS VARCHAR) AS category,
+                    COUNT(*) AS row_count,
+                    AVG(CAST({numeric_sql} AS DOUBLE)) AS mean_value
+                FROM {table_sql}
+                WHERE {category_sql} IS NOT NULL
+                  AND {numeric_sql} IS NOT NULL
+                GROUP BY category
+                HAVING COUNT(*) >= ?
+                ORDER BY mean_value DESC, category ASC
+                """,
+                [min_group_count],
+            ).fetchall()
+        if len(rows) < 2:
+            return None
+        top = rows[0]
+        bottom = rows[-1]
+        top_mean = float(top[2])
+        bottom_mean = float(bottom[2])
+        mean_difference = top_mean - bottom_mean
+        mean_ratio = None if bottom_mean == 0 else top_mean / bottom_mean
+        return WorkspaceGroupDifferenceStats(
+            category_column=category_column.name,
+            numeric_column=numeric_column.name,
+            row_count=sum(int(row[1]) for row in rows),
+            category_count=len(rows),
+            top_category=str(top[0]),
+            top_mean=top_mean,
+            top_count=int(top[1]),
+            bottom_category=str(bottom[0]),
+            bottom_mean=bottom_mean,
+            bottom_count=int(bottom[1]),
+            mean_difference=mean_difference,
+            mean_ratio=mean_ratio,
         )
 
     def _connect(self) -> duckdb.DuckDBPyConnection:

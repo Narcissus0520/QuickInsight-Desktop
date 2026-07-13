@@ -5,7 +5,10 @@ from quick_insight.infrastructure.tabular_files import DataFramePreview
 from quick_insight.infrastructure.workspace import (
     WorkspaceColumn,
     WorkspaceColumnStats,
+    WorkspaceCorrelationStats,
     WorkspaceDatabase,
+    WorkspaceGroupDifferenceStats,
+    WorkspaceTrendStats,
 )
 
 __all__ = [
@@ -16,7 +19,10 @@ __all__ = [
     "DataFramePreview",
     "WorkspaceColumn",
     "WorkspaceColumnStats",
+    "WorkspaceCorrelationStats",
     "WorkspaceDatabase",
+    "WorkspaceGroupDifferenceStats",
+    "WorkspaceTrendStats",
     "load_settings",
     "save_settings",
 ]
