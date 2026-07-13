@@ -19,4 +19,5 @@
 - Added a virtualized text labeling workspace with paged `QTableView` records, search/category filters, inline category creation, detail editing, save-next, undo, and bulk category/tag updates.
 - Added deterministic chart recommendation rule scoring with score breakdowns, reasons, warnings, data budgets, and tabular/text rule coverage.
 - Added workspace recommendation cards with analysis-intent selection, scores, field mappings, reasons, warnings, aggregation, data budgets, score breakdowns, and guarded future chart actions.
-- Chart rendering/export, transforms, advanced category governance, and project persistence remain future milestones.
+- Added the first M4 chart workspace slice: pinned Plotly, offline Plotly HTML generation, a Qt WebEngine chart view, local renderer preview documents, and recommendation-card generate actions that open the guarded chart workspace.
+- Real chart data preparation, downsampling/binning/top-N strategies, export, transforms, advanced category governance, and project persistence remain future milestones.

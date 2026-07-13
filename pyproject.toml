@@ -17,6 +17,7 @@ dependencies = [
   "polars==1.42.1",
   "pyarrow==25.0.0",
   "platformdirs==4.10.0",
+  "plotly==6.9.0",
 ]
 
 [project.optional-dependencies]
@@ -60,4 +61,8 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 module = ["PySide6.*", "platformdirs"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["plotly.*"]
 ignore_missing_imports = true

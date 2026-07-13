@@ -5,7 +5,7 @@ Date: 2026-07-13
 ## Current Version And Milestone
 
 - Version: `0.0.0`
-- Milestone: M4 chart workspace and export is next
+- Milestone: M4 chart workspace and export is active
 - Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted; M3 explainable chart recommendation accepted.
 
 ## Completed Work
@@ -31,18 +31,20 @@ Date: 2026-07-13
 - Added a virtualized text labeling workspace backed by a paged `QTableView`, with search/category filters, inline category creation, full record detail editing, save-next, undo restore, and bulk category/tag updates.
 - Added deterministic chart recommendation rule scoring for tabular and text profiles, with score breakdowns, reasons, warnings, export strategy, and data-budget metadata.
 - Added workspace recommendation cards with analysis-intent selection, scores, field mappings, reasons, warnings, aggregation, data budgets, score breakdowns, and guarded future chart actions.
+- Added the first M4 chart workspace slice: `plotly==6.9.0`, offline Plotly HTML generation, a Qt WebEngine chart view, CSP/network-blocking chart profile, renderer preview documents, and recommendation-card generate actions that open the chart workspace with explicit preview warnings.
 
 ## Remaining Work
 
-- Begin M4 with the local Plotly/Qt WebEngine chart renderer.
-- Add chart data preparation budgets, downsampling/binning/top-N strategies, export flows, and chart view network blocking.
+- Add real chart data preparation from DuckDB/profile outputs with data budgets, downsampling/binning/top-N strategies, and background jobs.
+- Add HTML/SVG/PNG/JSON export flows and stronger runtime validation for blocked external chart requests.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
-- Chart rendering/export, transforms, and project persistence are not implemented yet.
-- Recommendation cards exist, but generate/edit actions are guarded until the M4 chart workspace and renderer are implemented.
+- Chart rendering currently shows an explicit renderer preview, not a chart prepared from real dataset aggregates.
+- Chart export, transforms, and project persistence are not implemented yet.
+- Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
 - Text corpus data can be entered/imported, persisted, profiled, and labeled locally; safe category rename/merge/delete audit and project-level reopen/migration are deferred to later P0 hardening milestones.
 - Text corpus profiling currently performs a full application-level scan through the workspace adapter; future large-corpus hardening should push more aggregate work into DuckDB or bounded iterators.
 
@@ -94,7 +96,10 @@ Date: 2026-07-13
 - M3 deterministic chart recommendation scoring slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M3 recommendation card UI slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 41 source files, pytest passed 61 tests on Python 3.13.14 / PySide6 6.11.1.
 - M3 recommendation card UI slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- Dependency refresh `.\scripts\setup_dev.ps1 -RefreshLock`: exit 0; installed and locked `plotly==6.9.0` with `narwhals==2.23.0`.
+- M4 local renderer slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 43 source files, pytest passed 63 tests on Python 3.13.14 / PySide6 6.11.1.
+- M4 local renderer slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Begin M4 with a local Plotly/Qt WebEngine renderer and guarded chart workspace.
+Implement real chart data preparation with point budgets, Top N, and downsampling before sending data to Plotly/WebEngine.

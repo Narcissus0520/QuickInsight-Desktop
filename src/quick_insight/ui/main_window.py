@@ -46,7 +46,7 @@ from quick_insight.application.text_labeling import (
     TextRecordFilter,
 )
 from quick_insight.application.text_profiling import TextCorpusProfiler
-from quick_insight.charts import ChartRecommendationEngine
+from quick_insight.charts import ChartRecommendationEngine, build_preview_document
 from quick_insight.domain.enums import AnalysisIntent
 from quick_insight.domain.models import (
     Category,
@@ -58,6 +58,7 @@ from quick_insight.domain.models import (
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
+from quick_insight.ui.chart_view import PlotlyChartView
 from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.jobs import QtJobRunner
 from quick_insight.ui.models import DuckDbTableModel, TextRecordTableModel
@@ -100,6 +101,7 @@ class MainWindow(QMainWindow):
         self._intent_selector = QComboBox()
         self._recommendations_content = QWidget()
         self._recommendations_layout: QVBoxLayout | None = None
+        self._chart_view = PlotlyChartView()
         self._text_label_table = QTableView()
         self._text_label_status = QLabel("尚未加载文本语料。")
         self._text_search_edit = QLineEdit()
@@ -237,7 +239,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._build_preview_page())
         self._stack.addWidget(self._build_overview_page())
         self._stack.addWidget(self._build_recommendations_page())
-        self._stack.addWidget(self._placeholder_page("图表", "M4 将提供本地 Plotly 图表工作区。"))
+        self._stack.addWidget(self._chart_view)
         self._stack.addWidget(self._build_text_labeling_page())
 
         layout.addWidget(self._stack)
@@ -922,10 +924,7 @@ class MainWindow(QMainWindow):
         edit_button = QPushButton("编辑映射")
         edit_button.setObjectName("recommendationEditButton")
         generate_button.clicked.connect(
-            lambda _checked=False, rec=recommendation: self._show_recommendation_future_error(
-                "generate",
-                rec,
-            )
+            lambda _checked=False, rec=recommendation: self._generate_recommendation_chart(rec)
         )
         edit_button.clicked.connect(
             lambda _checked=False, rec=recommendation: self._show_recommendation_future_error(
@@ -946,6 +945,28 @@ class MainWindow(QMainWindow):
         card_layout.addWidget(score_breakdown)
         card_layout.addLayout(button_row)
         return card
+
+    def _generate_recommendation_chart(self, recommendation: ChartRecommendation) -> None:
+        document = build_preview_document(recommendation)
+        self._chart_view.render_document(document)
+        self._stack.setCurrentIndex(4)
+        self._jobs_label.setText("后台任务：本地 Plotly 渲染器预览已载入")
+        self.show_user_error(
+            UserFacingError(
+                code="CHART_DATA_PREPARATION_PENDING",
+                title_zh="已载入图表渲染器预览",
+                message_zh=(
+                    "当前图表页证明本地 Plotly/WebEngine 渲染路径可用，"
+                    "尚未使用真实数据聚合结果。"
+                ),
+                next_action_zh="后续 M4 切片会接入图表数据准备、降采样、导出和编辑映射。",
+                technical_detail=(
+                    f"chart_type={recommendation.spec.chart_type}; "
+                    f"mappings={recommendation.spec.mappings}; "
+                    f"budget={recommendation.data_budget}"
+                ),
+            )
+        )
 
     def _show_recommendation_future_error(
         self,

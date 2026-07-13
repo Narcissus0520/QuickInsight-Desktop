@@ -18,6 +18,7 @@ from quick_insight.application.text_corpus import TextCorpusService
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
+from quick_insight.ui.chart_view import PlotlyChartView
 from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.main_window import MainWindow
 
@@ -156,7 +157,14 @@ def test_main_window_shows_recommendation_cards_for_tabular_profile(qtbot, tmp_p
     generate_button = cards[0].findChild(QPushButton, "recommendationGenerateButton")
     generate_button.click()
 
-    assert "图表生成尚未接入" in window.findChild(QLabel, "errorLabel").text()
+    chart_view = window.findChild(PlotlyChartView, "plotlyChartView")
+    qtbot.waitUntil(lambda: bool(chart_view.last_html), timeout=3000)
+    assert window._stack.currentIndex() == 4
+    assert "quickInsightChart" in chart_view.last_html
+    assert "<script src" not in chart_view.last_html.lower()
+    assert "connect-src 'none'" in chart_view.last_html
+    assert "已载入图表渲染器预览" in window.findChild(QLabel, "errorLabel").text()
+    assert "渲染器预览" in window.findChild(QLabel, "chartWarningLabel").text()
 
 
 def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

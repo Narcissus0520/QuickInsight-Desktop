@@ -1,9 +1,9 @@
 # Chart Recommendation
 
-P0 chart recommendation is deterministic, explainable, and testable. The current M3
-slice implements rule scoring in `quick_insight.charts.recommendation` and
-workspace recommendation cards in the Qt shell. Actual Plotly/WebEngine rendering
-and chart export remain M4 work.
+P0 chart recommendation is deterministic, explainable, and testable. M3 implemented
+rule scoring in `quick_insight.charts.recommendation` and workspace recommendation
+cards in the Qt shell. The first M4 slice adds an offline Plotly/WebEngine renderer
+preview; real chart data preparation and export remain M4 work.
 
 Scoring uses the repository contract's 100-point breakdown:
 
@@ -28,6 +28,8 @@ Implemented rules:
   score breakdown, export strategy, and data budget.
 
 Workspace cards show the recommendation title, score, field mappings, reasons,
-warnings, aggregation, data budget, and score breakdown. The generate/edit actions
-are intentionally guarded with a Chinese future-feature error until the M4 chart
-workspace connects a renderer and editable chart specifications.
+warnings, aggregation, data budget, and score breakdown. The generate action now
+opens the chart workspace with an explicit renderer preview document built through
+Plotly Python and local Plotly.js. It does not claim to use real dataset aggregates
+yet. The edit action remains guarded until editable chart specifications are
+implemented.

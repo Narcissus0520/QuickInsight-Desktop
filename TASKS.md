@@ -48,9 +48,9 @@ M3 is accepted.
 
 ## M4 - Chart Workspace And Export
 
-M4 is next.
+M4 is active.
 
-- [ ] Local Plotly/WebEngine renderer.
+- [x] Local Plotly/WebEngine renderer.
 - [ ] Downsampling/binning/top-N strategies.
 - [ ] HTML/SVG/PNG/JSON export.
 - [ ] External network blocking for chart views.
