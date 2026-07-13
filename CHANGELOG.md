@@ -24,4 +24,5 @@
 - Added chart export for self-contained HTML, figure/config JSON, and SVG/PNG through local Plotly.js `toImage`, including WebGL SVG vector warnings.
 - Added stronger chart request blocking: only local chart schemes are allowed, file/network/script schemes are rejected, WebEngine local-content access is hardened, and blocked requests are surfaced in the chart view.
 - Completed M4 chart data preparation for box plots, correlation heatmaps, and current text-corpus chart specs, including text category/status/source/keyword/category-keyword/tag-cooccurrence charts.
-- Transforms, advanced category governance, and project persistence remain future milestones.
+- Added the first M5 transform foundation: safe transform steps, restricted DuckDB SQL compilation, non-destructive preview materialization, and tests for select/rename/filter/sort/deduplicate/missing/type-conversion/group aggregation paths.
+- Transform UI, advanced category governance, and project persistence remain future milestones.

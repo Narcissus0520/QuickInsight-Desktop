@@ -10,9 +10,10 @@ from typing import Any
 import duckdb
 import polars as pl
 
-from quick_insight.domain.models import Category, PreparedChartDataset, TextRecord
+from quick_insight.domain.models import Category, PreparedChartDataset, TextRecord, TransformStep
 from quick_insight.infrastructure.csv_import import CsvImportOptions
 from quick_insight.infrastructure.sql import quote_identifier
+from quick_insight.infrastructure.transform_sql import compile_transform_query
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,24 @@ class WorkspaceDatabase:
             connection.execute(
                 f"COPY {quote_identifier(table_name)} TO ? (FORMAT PARQUET)",
                 [str(destination)],
+            )
+
+    def materialize_transform(
+        self,
+        source_table: str,
+        destination_table: str,
+        steps: tuple[TransformStep, ...],
+    ) -> None:
+        if source_table == destination_table:
+            raise ValueError("Transform destination must not overwrite the source table.")
+        source_columns = self.columns(source_table)
+        compiled = compile_transform_query(source_table, source_columns, steps)
+        destination_sql = quote_identifier(destination_table)
+        with self._connect() as connection:
+            connection.execute(f"DROP TABLE IF EXISTS {destination_sql}")
+            connection.execute(
+                f"CREATE TABLE {destination_sql} AS {compiled.sql}",
+                list(compiled.parameters),
             )
 
     def save_text_corpus(
