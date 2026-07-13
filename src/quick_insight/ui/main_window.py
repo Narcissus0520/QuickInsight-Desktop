@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from PySide6.QtCore import QSignalBlocker, Qt, QThreadPool, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -45,7 +46,15 @@ from quick_insight.application.text_labeling import (
     TextRecordFilter,
 )
 from quick_insight.application.text_profiling import TextCorpusProfiler
-from quick_insight.domain.models import Category, ColumnProfile, DatasetProfile, TextRecord
+from quick_insight.charts import ChartRecommendationEngine
+from quick_insight.domain.enums import AnalysisIntent
+from quick_insight.domain.models import (
+    Category,
+    ChartRecommendation,
+    ColumnProfile,
+    DatasetProfile,
+    TextRecord,
+)
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
@@ -87,6 +96,10 @@ class MainWindow(QMainWindow):
         self._profile_summary = QLabel("尚未生成数据画像。")
         self._profile_fields = QListWidget()
         self._profile_findings = QListWidget()
+        self._recommendations_summary = QLabel("尚未生成图表推荐。")
+        self._intent_selector = QComboBox()
+        self._recommendations_content = QWidget()
+        self._recommendations_layout: QVBoxLayout | None = None
         self._text_label_table = QTableView()
         self._text_label_status = QLabel("尚未加载文本语料。")
         self._text_search_edit = QLineEdit()
@@ -108,6 +121,8 @@ class MainWindow(QMainWindow):
         self._jobs_label = QLabel("后台任务：空闲")
         self._profile_generation = 0
         self._running_profile_job: QtJobRunner[DatasetProfile] | None = None
+        self._current_profile: DatasetProfile | None = None
+        self._current_recommendations: tuple[ChartRecommendation, ...] = ()
         self._current_text_corpus_id: str | None = None
         self._text_label_model: TextRecordTableModel | None = None
         self._text_categories: tuple[Category, ...] = ()
@@ -221,7 +236,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(welcome)
         self._stack.addWidget(self._build_preview_page())
         self._stack.addWidget(self._build_overview_page())
-        self._stack.addWidget(self._placeholder_page("推荐", "M3 将提供可解释图表推荐。"))
+        self._stack.addWidget(self._build_recommendations_page())
         self._stack.addWidget(self._placeholder_page("图表", "M4 将提供本地 Plotly 图表工作区。"))
         self._stack.addWidget(self._build_text_labeling_page())
 
@@ -330,6 +345,44 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._profile_fields, stretch=2)
         layout.addWidget(findings_title)
         layout.addWidget(self._profile_findings, stretch=1)
+        return page
+
+    def _build_recommendations_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        title = QLabel("图表推荐")
+        title.setObjectName("sectionTitle")
+        self._recommendations_summary.setObjectName("recommendationsSummaryLabel")
+        self._recommendations_summary.setWordWrap(True)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        self._intent_selector.setObjectName("analysisIntentSelector")
+        for label, intent in _analysis_intent_options():
+            self._intent_selector.addItem(label, intent.value)
+        self._intent_selector.currentIndexChanged.connect(self._on_recommendation_intent_changed)
+        controls.addWidget(QLabel("分析目标"))
+        controls.addWidget(self._intent_selector, stretch=1)
+        controls.addStretch(2)
+
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("recommendationsScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._recommendations_content.setObjectName("recommendationsContent")
+        self._recommendations_layout = QVBoxLayout(self._recommendations_content)
+        self._recommendations_layout.setContentsMargins(0, 0, 0, 0)
+        self._recommendations_layout.setSpacing(10)
+        scroll_area.setWidget(self._recommendations_content)
+
+        layout.addWidget(title)
+        layout.addWidget(self._recommendations_summary)
+        layout.addLayout(controls)
+        layout.addWidget(scroll_area, stretch=1)
+        self._render_recommendation_cards(())
         return page
 
     def _build_text_labeling_page(self) -> QWidget:
@@ -768,6 +821,154 @@ class MainWindow(QMainWindow):
                 return category.name
         return category_id
 
+    def _on_recommendation_intent_changed(self, _index: int) -> None:
+        if self._current_profile is not None:
+            self._update_recommendations(self._current_profile)
+
+    def _current_analysis_intent(self) -> AnalysisIntent:
+        value = self._intent_selector.currentData()
+        if isinstance(value, str):
+            try:
+                return AnalysisIntent(value)
+            except ValueError:
+                return AnalysisIntent.AUTO
+        return AnalysisIntent.AUTO
+
+    def _update_recommendations(self, profile: DatasetProfile) -> None:
+        self._current_profile = profile
+        recommendations = ChartRecommendationEngine().recommend(
+            profile,
+            intent=self._current_analysis_intent(),
+        )
+        self._current_recommendations = recommendations
+        self._render_recommendation_cards(recommendations)
+
+    def _render_recommendation_cards(
+        self,
+        recommendations: tuple[ChartRecommendation, ...],
+    ) -> None:
+        layout = self._recommendations_layout
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        if self._current_profile is None:
+            self._recommendations_summary.setText("请先导入数据并生成画像。")
+            layout.addStretch(1)
+            return
+        self._recommendations_summary.setText(
+            f"已生成 {len(recommendations)} 条推荐；"
+            f"当前目标：{self._intent_selector.currentText()}。"
+        )
+        if not recommendations:
+            empty = QLabel("当前画像没有足够字段生成图表推荐。")
+            empty.setObjectName("muted")
+            empty.setWordWrap(True)
+            layout.addWidget(empty)
+            layout.addStretch(1)
+            return
+        for index, recommendation in enumerate(recommendations, start=1):
+            layout.addWidget(self._build_recommendation_card(index, recommendation))
+        layout.addStretch(1)
+
+    def _build_recommendation_card(
+        self,
+        index: int,
+        recommendation: ChartRecommendation,
+    ) -> QWidget:
+        card = QFrame()
+        card.setObjectName("recommendationCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(8)
+
+        title_row = QHBoxLayout()
+        title = QLabel(f"{index}. {_chart_type_text(recommendation.spec.chart_type)}")
+        title.setObjectName("recommendationTitleLabel")
+        score = QLabel(f"{recommendation.score} 分")
+        score.setObjectName("recommendationScoreLabel")
+        title_row.addWidget(title, stretch=1)
+        title_row.addWidget(score)
+
+        fields = QLabel(f"字段：{_mapping_text(recommendation.spec.mappings)}")
+        fields.setObjectName("recommendationFieldsLabel")
+        fields.setWordWrap(True)
+        reasons = QLabel(f"理由：{_reason_text(recommendation.reasons)}")
+        reasons.setObjectName("recommendationReasonsLabel")
+        reasons.setWordWrap(True)
+        warnings = QLabel(f"警告：{_warning_text(recommendation.warnings)}")
+        warnings.setObjectName("recommendationWarningsLabel")
+        warnings.setWordWrap(True)
+        aggregation = QLabel(f"聚合：{_aggregation_text(recommendation.spec.aggregation)}")
+        aggregation.setObjectName("recommendationAggregationLabel")
+        aggregation.setWordWrap(True)
+        budget = QLabel(f"数据预算：{_data_budget_text(recommendation.data_budget)}")
+        budget.setObjectName("recommendationBudgetLabel")
+        budget.setWordWrap(True)
+        score_breakdown = QLabel(
+            f"评分：{_score_breakdown_text(recommendation.spec.aggregation)}"
+        )
+        score_breakdown.setObjectName("recommendationBreakdownLabel")
+        score_breakdown.setWordWrap(True)
+
+        button_row = QHBoxLayout()
+        generate_button = QPushButton("生成图表")
+        generate_button.setObjectName("recommendationGenerateButton")
+        edit_button = QPushButton("编辑映射")
+        edit_button.setObjectName("recommendationEditButton")
+        generate_button.clicked.connect(
+            lambda _checked=False, rec=recommendation: self._show_recommendation_future_error(
+                "generate",
+                rec,
+            )
+        )
+        edit_button.clicked.connect(
+            lambda _checked=False, rec=recommendation: self._show_recommendation_future_error(
+                "edit",
+                rec,
+            )
+        )
+        button_row.addStretch(1)
+        button_row.addWidget(edit_button)
+        button_row.addWidget(generate_button)
+
+        card_layout.addLayout(title_row)
+        card_layout.addWidget(fields)
+        card_layout.addWidget(reasons)
+        card_layout.addWidget(warnings)
+        card_layout.addWidget(aggregation)
+        card_layout.addWidget(budget)
+        card_layout.addWidget(score_breakdown)
+        card_layout.addLayout(button_row)
+        return card
+
+    def _show_recommendation_future_error(
+        self,
+        action: str,
+        recommendation: ChartRecommendation,
+    ) -> None:
+        action_text = "图表生成" if action == "generate" else "映射编辑"
+        self.show_user_error(
+            UserFacingError(
+                code=f"CHART_RECOMMENDATION_{action.upper()}_PENDING",
+                title_zh=f"{action_text}尚未接入",
+                message_zh=(
+                    f"{_chart_type_text(recommendation.spec.chart_type)} 的{action_text}"
+                    "将在后续图表工作区接入。"
+                ),
+                next_action_zh="当前可以先查看推荐分数、字段、理由、警告和数据预算。",
+                technical_detail=(
+                    f"chart_type={recommendation.spec.chart_type}; "
+                    f"mappings={recommendation.spec.mappings}"
+                ),
+            )
+        )
+
     def _on_destroyed(self) -> None:
         self._is_disposed = True
         self._profile_generation += 1
@@ -935,6 +1136,7 @@ class MainWindow(QMainWindow):
         if profile.method == "text_corpus_full_scan":
             self._show_text_profile(profile)
             return
+        self._update_recommendations(profile)
         quality = profile.summary.get("quality")
         quality_summary = quality if isinstance(quality, dict) else {}
         column_count = profile.summary.get("column_count", len(profile.column_profiles))
@@ -959,6 +1161,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("数据画像完成", 5000)
 
     def _show_text_profile(self, profile: DatasetProfile) -> None:
+        self._update_recommendations(profile)
         categorized_count = profile.summary.get("categorized_count", 0)
         uncategorized_count = profile.summary.get("uncategorized_count", 0)
         duplicate_text = profile.summary.get("exact_duplicate_record_count", 0)
@@ -1008,3 +1211,163 @@ def _semantic_type_text(value: str) -> str:
         "source_reference": "来源",
         "unknown": "未知",
     }.get(value, value)
+
+
+def _analysis_intent_options() -> tuple[tuple[str, AnalysisIntent], ...]:
+    return (
+        ("自动帮我分析", AnalysisIntent.AUTO),
+        ("看数据随时间怎么变化", AnalysisIntent.TREND),
+        ("比较不同类别", AnalysisIntent.COMPARISON),
+        ("查看数据分布", AnalysisIntent.DISTRIBUTION),
+        ("查看两个指标是否有关", AnalysisIntent.RELATIONSHIP),
+        ("查看各类别占比", AnalysisIntent.COMPOSITION),
+        ("查找异常数据", AnalysisIntent.ANOMALY),
+        ("查看指标相关性", AnalysisIntent.CORRELATION),
+    )
+
+
+def _chart_type_text(chart_type: str) -> str:
+    return {
+        "line": "折线图",
+        "area": "面积图",
+        "bar": "柱状图",
+        "box": "箱线图",
+        "histogram": "直方图",
+        "scatter": "散点图",
+        "density_heatmap": "密度热图",
+        "crosstab_heatmap": "交叉热图",
+        "stacked_bar": "堆叠柱状图",
+        "correlation_heatmap": "相关性热图",
+        "donut": "环形图",
+        "text_category_bar": "文本类别计数图",
+        "text_classification_status_bar": "分类状态图",
+        "text_source_category_heatmap": "来源-类别热图",
+        "text_keyword_bar": "关键词排行图",
+        "text_category_keyword_heatmap": "类别-关键词热图",
+        "text_tag_cooccurrence_heatmap": "标签共现热图",
+    }.get(chart_type, chart_type)
+
+
+def _mapping_text(mappings: dict[str, str]) -> str:
+    if not mappings:
+        return "无字段映射"
+    return "；".join(f"{_mapping_role_text(key)}={value}" for key, value in mappings.items())
+
+
+def _mapping_role_text(role: str) -> str:
+    return {
+        "x": "横轴",
+        "y": "纵轴",
+        "color": "颜色",
+        "category": "类别",
+        "value": "数值",
+        "fields": "字段",
+    }.get(role, role)
+
+
+def _reason_text(reasons: tuple[str, ...]) -> str:
+    if not reasons:
+        return "无"
+    return "；".join(_reason_item_text(reason) for reason in reasons)
+
+
+def _reason_item_text(reason: str) -> str:
+    if reason.startswith("score="):
+        return f"总分 {reason.removeprefix('score=')}"
+    return {
+        "datetime_numeric_trend": "时间字段与数值字段适合观察趋势",
+        "line_chart_preserves_time_order": "折线图保留时间顺序",
+        "non_negative_numeric_values_allow_area_context": "数值非负，适合面积上下文",
+        "category_numeric_comparison": "类别字段与数值字段适合比较",
+        "mean_by_category": "按类别计算均值",
+        "category_numeric_distribution": "按类别查看数值分布",
+        "box_plot_shows_spread": "箱线图展示离散程度",
+        "single_numeric_distribution": "单个数值字段适合查看分布",
+        "histogram_uses_aggregated_bins": "直方图使用分箱聚合",
+        "two_numeric_relationship": "两个数值字段适合查看关系",
+        "scatter_shows_pairwise_pattern": "散点图展示成对模式",
+        "density_bins_preferred_for_very_large_scatter": "大数据量优先使用密度分箱",
+        "two_categorical_crosstab": "两个类别字段适合交叉统计",
+        "heatmap_uses_count_aggregation": "热图使用计数聚合",
+        "two_categorical_composition": "两个类别字段适合查看组成",
+        "stacked_bar_counts_records": "堆叠柱状图统计记录数",
+        "multiple_numeric_correlation": "多个数值字段适合相关性矩阵",
+        "field_limit_keeps_heatmap_readable": "字段数量已控制以保持可读",
+        "small_category_composition": "少量类别适合组成图",
+        "donut_allowed_for_at_most_6_categories": "类别数不超过 6，允许环形图",
+        "text_category_counts": "文本主类别可做计数统计",
+        "uses_persisted_primary_category": "使用已保存的主类别",
+        "classified_uncategorized_status": "可比较已分类与未分类数量",
+        "two_status_categories_are_readable": "状态类别数量少，易读",
+        "source_category_crosstab": "来源与类别适合交叉分析",
+        "heatmap_summarizes_two_text_metadata_fields": "热图汇总两个文本元数据字段",
+        "keyword_ranking": "可展示字面关键字命中排行",
+        "keyword_counts_are_surface_level": "关键字统计仅代表字面匹配",
+        "category_keyword_differences": "可比较各类别关键字差异",
+        "heatmap_compares_literal_keyword_counts": "热图比较字面关键字计数",
+        "tag_co_occurrence": "可查看标签共同出现",
+        "co_occurrence_is_not_causation": "共现不代表因果",
+    }.get(reason, reason)
+
+
+def _warning_text(warnings: tuple[str, ...]) -> str:
+    if not warnings:
+        return "无"
+    return "；".join(_warning_item_text(warning) for warning in warnings)
+
+
+def _warning_item_text(warning: str) -> str:
+    field, separator, code = warning.partition(":")
+    prefix = f"{field}：" if separator else ""
+    key = code if separator else warning
+    return prefix + {
+        "missing_values": "存在缺失值",
+        "too_many_categories_for_donut": "类别较多，不优先使用环形图",
+        "top_n_with_other_recommended": "建议 Top N 加 Other",
+        "high_cardinality_category": "类别基数较高",
+        "filter_or_top_n_required": "需要过滤或 Top N",
+        "very_high_cardinality_category": "类别基数很高",
+        "time_series_downsampling_required": "需要时间序列降采样",
+        "scatter_sampling_or_webgl_required": "散点需要采样或 WebGL",
+        "raw_scatter_too_large_density_bins_preferred": "原始散点过大，优先密度分箱",
+        "correlation_limited_to_first_8_numeric_fields": "相关性热图限制为前 8 个数值字段",
+        "keyword_matches_are_not_semantic_topics": "关键字命中不是语义主题",
+        "keyword_matches_are_surface_level": "关键字匹配仅为字面统计",
+        "co_occurrence_is_not_causation": "共现不代表因果",
+        "category_count_unknown": "类别数量未知",
+    }.get(key, key)
+
+
+def _aggregation_text(aggregation: dict[str, Any]) -> str:
+    visible_items = {
+        key: value for key, value in aggregation.items() if key != "score_breakdown"
+    }
+    if not visible_items:
+        return "无需预先聚合"
+    return "；".join(f"{key}={value}" for key, value in visible_items.items())
+
+
+def _score_breakdown_text(aggregation: dict[str, Any]) -> str:
+    breakdown = aggregation.get("score_breakdown")
+    if not isinstance(breakdown, dict):
+        return "无评分明细"
+    parts = (
+        ("字段", "field_compatibility"),
+        ("意图", "intent_match"),
+        ("基数", "cardinality_suitability"),
+        ("质量", "data_quality_suitability"),
+        ("性能", "performance_readability"),
+    )
+    return "；".join(f"{label} {breakdown.get(key, 0)}" for label, key in parts)
+
+
+def _data_budget_text(data_budget: dict[str, Any]) -> str:
+    if not data_budget:
+        return "无"
+    requires = "需要预处理" if data_budget.get("requires_preparation") else "可直接准备"
+    approximate = "近似" if data_budget.get("approximate") else "精确"
+    return (
+        f"原始 {data_budget.get('original_rows', '未知')} 行；"
+        f"目标点数 {data_budget.get('target_points', '未知')}；"
+        f"策略 {data_budget.get('strategy', '未知')}；{requires}；{approximate}"
+    )

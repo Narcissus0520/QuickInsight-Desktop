@@ -40,13 +40,15 @@ M2 is accepted.
 
 ## M3 - Explainable Chart Recommendation
 
-M3 is next.
+M3 is accepted.
 
 - [x] Deterministic rule scoring.
-- [ ] Recommendation cards with reasons, warnings, and data budget.
-- [ ] Tabular and text chart recommendation tests.
+- [x] Recommendation cards with reasons, warnings, and data budget.
+- [x] Tabular and text chart recommendation tests.
 
 ## M4 - Chart Workspace And Export
+
+M4 is next.
 
 - [ ] Local Plotly/WebEngine renderer.
 - [ ] Downsampling/binning/top-N strategies.

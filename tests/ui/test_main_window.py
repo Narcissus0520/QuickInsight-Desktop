@@ -3,7 +3,15 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QListWidget, QPushButton, QTableView
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QPushButton,
+    QTableView,
+)
 
 from quick_insight.application.importing import TabularImportService
 from quick_insight.application.text_corpus import TextCorpusService
@@ -100,6 +108,57 @@ def test_main_window_shows_one_click_analysis_findings(qtbot, tmp_path) -> None:
     assert "呈明显上升趋势" in finding_text
 
 
+def test_main_window_shows_recommendation_cards_for_tabular_profile(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "recommendations.csv"
+    source.write_text(
+        "\n".join(
+            [
+                "date,category,revenue,cost",
+                "2026-01-01,A,10,11",
+                "2026-01-02,A,20,21",
+                "2026-01-03,B,30,31",
+                "2026-01-04,B,40,41",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    result = service.import_csv(service.preview_csv(source))
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+
+    window._show_import_result(result)
+
+    qtbot.waitUntil(
+        lambda: window.findChild(QLabel, "recommendationsSummaryLabel")
+        .text()
+        .startswith("已生成"),
+        timeout=3000,
+    )
+    cards = window.findChildren(QFrame, "recommendationCard")
+    assert cards
+    card_text = "\n".join(label.text() for label in cards[0].findChildren(QLabel))
+    assert "字段：" in card_text
+    assert "理由：" in card_text
+    assert "数据预算：" in card_text
+    assert "评分：" in card_text
+
+    intent = window.findChild(QComboBox, "analysisIntentSelector")
+    intent.setCurrentIndex(intent.findText("比较不同类别"))
+    qtbot.waitUntil(
+        lambda: "比较不同类别" in window.findChild(QLabel, "recommendationsSummaryLabel").text(),
+        timeout=3000,
+    )
+    cards = window.findChildren(QFrame, "recommendationCard")
+    generate_button = cards[0].findChild(QPushButton, "recommendationGenerateButton")
+    generate_button.click()
+
+    assert "图表生成尚未接入" in window.findChild(QLabel, "errorLabel").text()
+
+
 def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
     source = tmp_path / "sales.csv"
     source.write_text("name,amount\nalpha,1\n", encoding="utf-8")
@@ -159,6 +218,19 @@ def test_main_window_shows_text_corpus_result(qtbot, tmp_path) -> None:  # type:
     assert "未分类 2" in window.findChild(QLabel, "profileSummaryLabel").text()
     assert window.findChild(QListWidget, "profileFieldsList").count() == 4
     assert window.findChild(QListWidget, "profileFindingsList").count() >= 1
+    qtbot.waitUntil(
+        lambda: window.findChild(QLabel, "recommendationsSummaryLabel")
+        .text()
+        .startswith("已生成"),
+        timeout=3000,
+    )
+    card_text = "\n".join(
+        label.text()
+        for card in window.findChildren(QFrame, "recommendationCard")
+        for label in card.findChildren(QLabel)
+    )
+    assert "文本类别计数图" in card_text
+    assert "数据预算：" in card_text
     qtbot.waitUntil(
         lambda: window._text_label_model is not None
         and window._text_label_model.pending_page_count() == 0,

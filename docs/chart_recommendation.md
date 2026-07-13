@@ -1,8 +1,9 @@
 # Chart Recommendation
 
 P0 chart recommendation is deterministic, explainable, and testable. The current M3
-slice implements rule scoring in `quick_insight.charts.recommendation`; chart cards
-and rendering are still upcoming M3/M4 work.
+slice implements rule scoring in `quick_insight.charts.recommendation` and
+workspace recommendation cards in the Qt shell. Actual Plotly/WebEngine rendering
+and chart export remain M4 work.
 
 Scoring uses the repository contract's 100-point breakdown:
 
@@ -25,3 +26,8 @@ Implemented rules:
   tag co-occurrence heatmaps.
 - Every recommendation records fields, aggregation, warnings, approximation state,
   score breakdown, export strategy, and data budget.
+
+Workspace cards show the recommendation title, score, field mappings, reasons,
+warnings, aggregation, data budget, and score breakdown. The generate/edit actions
+are intentionally guarded with a Chinese future-feature error until the M4 chart
+workspace connects a renderer and editable chart specifications.

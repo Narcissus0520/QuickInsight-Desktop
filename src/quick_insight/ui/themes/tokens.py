@@ -49,6 +49,11 @@ QFrame#panel, QFrame#bottomStatus, QFrame#dropZone {{
     border: 1px solid {tokens["border"]};
     border-radius: 6px;
 }}
+QFrame#recommendationCard {{
+    background: {tokens["panel"]};
+    border: 1px solid {tokens["border"]};
+    border-radius: 6px;
+}}
 QFrame#dropZone {{
     background: {tokens["panel_alt"]};
     min-height: 92px;
@@ -57,6 +62,14 @@ QLabel#sectionTitle {{
     color: {tokens["text"]};
     font-size: 16px;
     font-weight: 600;
+}}
+QLabel#recommendationTitleLabel {{
+    font-size: 15px;
+    font-weight: 600;
+}}
+QLabel#recommendationScoreLabel {{
+    color: {tokens["accent"]};
+    font-weight: 700;
 }}
 QLabel#muted, QLabel#statusMuted {{
     color: {tokens["muted"]};
