@@ -22,4 +22,5 @@
 - Added the first M4 chart workspace slice: pinned Plotly, offline Plotly HTML generation, a Qt WebEngine chart view, local renderer preview documents, and recommendation-card generate actions that open the guarded chart workspace.
 - Added DuckDB-backed tabular chart data preparation for Top N plus Other category aggregation, time-window downsampling, scatter uniform sampling, histogram bins, 2D density bins, and categorical cross-tab aggregation.
 - Added chart export for self-contained HTML, figure/config JSON, and SVG/PNG through local Plotly.js `toImage`, including WebGL SVG vector warnings.
-- External chart-request validation, transforms, advanced category governance, and project persistence remain future milestones.
+- Added stronger chart request blocking: only local chart schemes are allowed, file/network/script schemes are rejected, WebEngine local-content access is hardened, and blocked requests are surfaced in the chart view.
+- Remaining chart-family data preparation, transforms, advanced category governance, and project persistence remain future milestones.

@@ -45,6 +45,9 @@ def test_plotly_html_uses_inline_local_script_and_escapes_json() -> None:
     assert "https://" not in html
     assert "http://" not in html
     assert "connect-src 'none'" in html
+    assert "base-uri 'none'" in html
+    assert "object-src 'none'" in html
+    assert "frame-src 'none'" in html
     assert "unsafe </script> title" not in html
     assert "category</script>" not in html
     assert "\\u003c/script\\u003e" in html

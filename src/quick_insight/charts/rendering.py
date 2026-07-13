@@ -106,7 +106,12 @@ def build_plotly_html(
         "img-src data: blob:; "
         "font-src data:; "
         "connect-src 'none'; "
-        "worker-src blob:;"
+        "worker-src blob:; "
+        "base-uri 'none'; "
+        "form-action 'none'; "
+        "frame-src 'none'; "
+        "object-src 'none'; "
+        "manifest-src 'none';"
     )
     plotly_source = _script_safe(plotly_js if plotly_js is not None else local_plotly_js())
     figure_json = _json_for_html(document.figure)

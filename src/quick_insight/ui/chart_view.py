@@ -8,6 +8,7 @@ from PySide6.QtCore import QTimer, QUrl, Signal
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
     QWebEngineProfile,
+    QWebEngineSettings,
     QWebEngineUrlRequestInfo,
     QWebEngineUrlRequestInterceptor,
 )
@@ -22,37 +23,40 @@ from quick_insight.charts.exporting import (
     write_image_data_url,
 )
 from quick_insight.charts.rendering import PlotlyChartDocument, build_plotly_html
+from quick_insight.charts.security import ChartRequestDecision, classify_chart_request
 
 ExportCallback = Callable[[ChartExportResult | Exception], None]
 
 
 class OfflineChartRequestInterceptor(QWebEngineUrlRequestInterceptor):
-    blocked = Signal(str)
-
-    _allowed_schemes = frozenset({"about", "blob", "data", "file", "qrc"})
+    blocked = Signal(object)
 
     def interceptRequest(self, info: QWebEngineUrlRequestInfo) -> None:
-        url = info.requestUrl()
-        scheme = url.scheme().lower()
-        if scheme in self._allowed_schemes:
+        decision = classify_chart_request(info.requestUrl().toString())
+        if decision.allowed:
             return
         info.block(True)
-        self.blocked.emit(url.toString())
+        self.blocked.emit(decision)
 
 
 class OfflineChartWebView(QWebEngineView):
+    external_request_blocked = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("offlineChartWebView")
         self._profile = QWebEngineProfile(self)
         self._interceptor = OfflineChartRequestInterceptor(self._profile)
+        self._interceptor.blocked.connect(self.external_request_blocked.emit)
         self._profile.setUrlRequestInterceptor(self._interceptor)
         self.setPage(QWebEnginePage(self._profile, self._profile))
+        _harden_chart_web_settings(self.settings())
 
 
 class PlotlyChartView(QWidget):
     chart_loaded = Signal(bool)
     export_requested = Signal(str)
+    external_request_blocked = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -60,6 +64,7 @@ class PlotlyChartView(QWidget):
         self._last_html = ""
         self._document: PlotlyChartDocument | None = None
         self._pending_export: tuple[ChartExportFormat, Path, ExportCallback, int] | None = None
+        self._blocked_requests: list[ChartRequestDecision] = []
         self._title_label = QLabel("尚未生成图表")
         self._title_label.setObjectName("chartTitleLabel")
         self._status_label = QLabel("从推荐卡片点击生成后，将在这里载入本地 Plotly 图表。")
@@ -111,6 +116,7 @@ class PlotlyChartView(QWidget):
         layout.addWidget(self._web_view, stretch=1)
 
         self._web_view.loadFinished.connect(self._on_load_finished)
+        self._web_view.external_request_blocked.connect(self._on_external_request_blocked)
 
     @property
     def last_html(self) -> str:
@@ -120,8 +126,13 @@ class PlotlyChartView(QWidget):
     def current_document(self) -> PlotlyChartDocument | None:
         return self._document
 
+    @property
+    def blocked_external_requests(self) -> tuple[ChartRequestDecision, ...]:
+        return tuple(self._blocked_requests)
+
     def render_document(self, document: PlotlyChartDocument) -> None:
         self._document = document
+        self._blocked_requests.clear()
         self._title_label.setText(document.title)
         self._status_label.setText("正在载入本地 Plotly 图表...")
         self._warning_label.setText(_warning_text(document))
@@ -204,6 +215,38 @@ class PlotlyChartView(QWidget):
             "本地 Plotly 图表已载入。" if ok else "图表载入失败，请查看技术细节。"
         )
         self.chart_loaded.emit(ok)
+
+    def _on_external_request_blocked(self, decision: object) -> None:
+        if isinstance(decision, ChartRequestDecision):
+            self.record_blocked_request(decision)
+
+    def record_blocked_request(self, decision: ChartRequestDecision) -> None:
+        if decision.allowed:
+            return
+        self._blocked_requests.append(decision)
+        del self._blocked_requests[:-20]
+        self._warning_label.setText(
+            f"{decision.reason_zh} 最近一次：{_compact_url_for_status(decision.url)}"
+        )
+        self.external_request_blocked.emit(decision.url)
+
+
+def _harden_chart_web_settings(settings: QWebEngineSettings) -> None:
+    settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.HyperlinkAuditingEnabled, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.DnsPrefetchEnabled, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanPaste, False)
+    settings.setAttribute(QWebEngineSettings.WebAttribute.PluginsEnabled, False)
+
+
+def _compact_url_for_status(url: str) -> str:
+    sanitized = url.replace("\r", " ").replace("\n", " ").strip()
+    if len(sanitized) <= 96:
+        return sanitized
+    return sanitized[:93] + "..."
 
 
 def _warning_text(document: PlotlyChartDocument) -> str:

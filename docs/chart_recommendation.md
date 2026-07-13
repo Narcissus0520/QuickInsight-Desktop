@@ -42,3 +42,9 @@ Chart export writes self-contained interactive HTML and versioned JSON directly
 from the prepared `PlotlyChartDocument`. SVG and PNG export use local Plotly.js
 `toImage` inside the chart `QWebEngineView`; SVG export reports a warning when a
 WebGL trace may prevent a fully vector result.
+
+Chart rendering remains offline-only. The HTML template uses a restrictive CSP,
+the WebEngine view disables local-content access to remote and file URLs, and the
+Qt request interceptor allows only `about`, `blob`, `data`, and `qrc` schemes.
+Blocked external/file/script requests are recorded in the chart view so runtime
+behavior can be tested instead of only inferred from static HTML.

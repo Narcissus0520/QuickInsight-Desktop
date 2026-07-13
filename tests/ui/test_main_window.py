@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("PySide6")
+from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -16,12 +17,25 @@ from PySide6.QtWidgets import (
 from quick_insight.application.importing import TabularImportService
 from quick_insight.application.text_corpus import TextCorpusService
 from quick_insight.charts import ChartExportFormat, ChartExportResult
+from quick_insight.charts.security import classify_chart_request
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
-from quick_insight.ui.chart_view import PlotlyChartView
+from quick_insight.ui.chart_view import OfflineChartRequestInterceptor, PlotlyChartView
 from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.main_window import MainWindow
+
+
+class _FakeChartRequest:
+    def __init__(self, url: str) -> None:
+        self._url = QUrl(url)
+        self.blocked = False
+
+    def requestUrl(self) -> QUrl:
+        return self._url
+
+    def block(self, blocked: bool) -> None:
+        self.blocked = blocked
 
 
 def test_main_window_constructs_workspace_shell(qtbot) -> None:  # type: ignore[no-untyped-def]
@@ -52,6 +66,38 @@ def test_theme_switching_updates_current_theme(qtbot) -> None:  # type: ignore[n
     window.apply_theme("dark", persist=False)
 
     assert window.current_theme == "dark"
+
+
+def test_chart_request_interceptor_blocks_external_and_file_urls(qtbot) -> None:  # type: ignore[no-untyped-def]
+    interceptor = OfflineChartRequestInterceptor()
+    blocked_decisions: list[object] = []
+    interceptor.blocked.connect(blocked_decisions.append)
+
+    external_request = _FakeChartRequest("https://example.com/plotly.js")
+    interceptor.interceptRequest(external_request)  # type: ignore[arg-type]
+    file_request = _FakeChartRequest("file:///C:/Users/example/secret.csv")
+    interceptor.interceptRequest(file_request)  # type: ignore[arg-type]
+    local_request = _FakeChartRequest("qrc:/quick-insight/charts/")
+    interceptor.interceptRequest(local_request)  # type: ignore[arg-type]
+
+    assert external_request.blocked is True
+    assert file_request.blocked is True
+    assert local_request.blocked is False
+    assert len(blocked_decisions) == 2
+
+
+def test_chart_view_records_blocked_external_requests(qtbot) -> None:  # type: ignore[no-untyped-def]
+    view = PlotlyChartView()
+    qtbot.addWidget(view)
+    blocked_urls: list[str] = []
+    view.external_request_blocked.connect(blocked_urls.append)
+
+    view.record_blocked_request(classify_chart_request("https://example.com/tracker.png"))
+    view.record_blocked_request(classify_chart_request("data:image/png;base64,AA=="))
+
+    assert blocked_urls == ["https://example.com/tracker.png"]
+    assert len(view.blocked_external_requests) == 1
+    assert "外部网络请求" in view.findChild(QLabel, "chartWarningLabel").text()
 
 
 def test_main_window_shows_imported_dataset(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

@@ -15,13 +15,20 @@ from quick_insight.charts.rendering import (
     build_prepared_document,
     build_preview_document,
 )
+from quick_insight.charts.security import (
+    ALLOWED_CHART_SCHEMES,
+    ChartRequestDecision,
+    classify_chart_request,
+)
 
 __all__ = [
+    "ALLOWED_CHART_SCHEMES",
     "DEFAULT_BUDGETS",
     "ChartBudget",
     "ChartExportFormat",
     "ChartExportResult",
     "ChartRecommendationEngine",
+    "ChartRequestDecision",
     "PlotlyChartDocument",
     "ScoreBreakdown",
     "build_plotly_html",
@@ -29,6 +36,7 @@ __all__ = [
     "build_preview_document",
     "build_to_image_script",
     "chart_document_json",
+    "classify_chart_request",
     "export_document_file",
     "svg_vector_warning",
     "write_image_data_url",

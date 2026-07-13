@@ -53,7 +53,8 @@ M4 is active.
 - [x] Local Plotly/WebEngine renderer.
 - [x] Downsampling/binning/top-N strategies.
 - [x] HTML/SVG/PNG/JSON export.
-- [ ] External network blocking for chart views.
+- [x] External network blocking for chart views.
+- [ ] Real data preparation for box plots, correlation heatmaps, and text-corpus chart specs.
 
 ## M5 - Transforms And Project Persistence
 

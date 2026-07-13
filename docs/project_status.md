@@ -34,10 +34,10 @@ Date: 2026-07-13
 - Added the first M4 chart workspace slice: `plotly==6.9.0`, offline Plotly HTML generation, a Qt WebEngine chart view, CSP/network-blocking chart profile, renderer preview documents, and recommendation-card generate actions that open the chart workspace with explicit preview warnings.
 - Added DuckDB-backed tabular chart preparation with `PreparedChartDataset` metadata, Top N plus Other category aggregation, time-window mean downsampling, deterministic scatter sampling, histogram bins, 2D density bins, categorical cross-tabs, and background chart preparation from recommendation cards.
 - Added chart export for self-contained HTML, figure/config JSON, SVG, and PNG. HTML/JSON use deterministic file serialization, while SVG/PNG use local Plotly.js `toImage` in the chart WebEngine view and warn when WebGL traces cannot guarantee fully vector SVG output.
+- Added stronger runtime validation for chart resource blocking: a shared chart request policy allows only local chart schemes, rejects external/file/script schemes, hardens WebEngine local-content settings, records blocked requests in the chart view, and adds unit/UI coverage.
 
 ## Remaining Work
 
-- Add stronger runtime validation for blocked external chart requests.
 - Extend real data preparation to remaining chart families such as box plots, correlation heatmaps, and text-corpus chart specs.
 - Continue committing once per completed milestone or coherent stage.
 
@@ -107,7 +107,9 @@ Date: 2026-07-13
 - M4 chart data preparation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M4 chart export slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 45 source files, pytest passed 70 tests on Python 3.13.14 / PySide6 6.11.1.
 - M4 chart export slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M4 chart request blocking slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 46 source files, pytest passed 74 tests on Python 3.13.14 / PySide6 6.11.1.
+- M4 chart request blocking slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Add stronger runtime validation for blocked external chart requests.
+Extend real data preparation to box plots, correlation heatmaps, and text-corpus chart specs.
