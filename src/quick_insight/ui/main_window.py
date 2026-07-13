@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -39,6 +40,11 @@ from quick_insight.application.analysis import TabularAnalysisService
 from quick_insight.application.chart_preparation import (
     TabularChartPreparationService,
     TextChartPreparationService,
+)
+from quick_insight.application.data_export import (
+    DataExportFormat,
+    DataExportResult,
+    ProcessedDataExportService,
 )
 from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
@@ -114,6 +120,7 @@ class MainWindow(QMainWindow):
         self._text_labeling_service = TextLabelingService(self._workspace)
         self._transform_service = TabularTransformService(self._workspace)
         self._project_service = ProjectPersistenceService(self._workspace)
+        self._data_export_service = ProcessedDataExportService(self._workspace)
 
         self._stack = QStackedWidget()
         self._error_label = QLabel("无错误")
@@ -148,6 +155,8 @@ class MainWindow(QMainWindow):
         self._transform_preview_button = QPushButton("生成预览表")
         self._transform_cancel_button = QPushButton("取消预览")
         self._source_relocation_button = QPushButton("重定位源文件")
+        self._export_tabular_button = QPushButton("导出表格")
+        self._export_text_button = QPushButton("导出文本")
         self._text_label_table = QTableView()
         self._text_label_status = QLabel("尚未加载文本语料。")
         self._text_search_edit = QLineEdit()
@@ -172,9 +181,11 @@ class MainWindow(QMainWindow):
         self._running_chart_job: QtJobRunner[PlotlyChartDocument] | None = None
         self._running_transform_job: QtJobRunner[TransformPreviewResult] | None = None
         self._running_project_job: QtJobRunner[ProjectSaveResult | ProjectOpenResult] | None = None
+        self._running_data_export_job: QtJobRunner[DataExportResult] | None = None
         self._chart_generation = 0
         self._transform_generation = 0
         self._project_generation = 0
+        self._data_export_generation = 0
         self._current_tabular_table_name: str | None = None
         self._current_tabular_columns: tuple[WorkspaceColumn, ...] = ()
         self._current_profile: DatasetProfile | None = None
@@ -249,6 +260,18 @@ class MainWindow(QMainWindow):
         self._source_relocation_button.setToolTip("打开项目后如源文件缺失或不匹配，可在这里重新定位。")
         self._source_relocation_button.clicked.connect(self._open_source_relocation_dialog)
         toolbar.addWidget(self._source_relocation_button)
+
+        self._export_tabular_button.setObjectName("exportTabularDataButton")
+        self._export_tabular_button.setEnabled(False)
+        self._export_tabular_button.setToolTip("导出当前表格或转换预览结果。")
+        self._export_tabular_button.clicked.connect(self._export_current_tabular_data)
+        toolbar.addWidget(self._export_tabular_button)
+
+        self._export_text_button.setObjectName("exportTextDataButton")
+        self._export_text_button.setEnabled(False)
+        self._export_text_button.setToolTip("导出当前文本语料及人工分类/标签。")
+        self._export_text_button.clicked.connect(self._export_current_text_data)
+        toolbar.addWidget(self._export_text_button)
 
         help_button = QPushButton("设置")
         help_button.setObjectName("settingsButton")
@@ -1200,6 +1223,7 @@ class MainWindow(QMainWindow):
         self._current_tabular_table_name = result.table_name
         self._current_tabular_columns = result.columns
         self._current_text_corpus_id = None
+        self._sync_data_export_buttons()
         self._dataset_list.addItem(display_name)
         self._preview_table.setModel(
             DuckDbTableModel(
@@ -1486,6 +1510,10 @@ class MainWindow(QMainWindow):
         else:
             self._source_relocation_button.setToolTip("当前项目没有需要重定位的源文件。")
 
+    def _sync_data_export_buttons(self) -> None:
+        self._export_tabular_button.setEnabled(self._current_tabular_table_name is not None)
+        self._export_text_button.setEnabled(self._current_text_corpus_id is not None)
+
     def _open_source_relocation_dialog(self) -> None:
         if self._current_project_manifest is None:
             self.show_user_error(
@@ -1547,6 +1575,7 @@ class MainWindow(QMainWindow):
         self._profile_generation += 1
         self._chart_generation += 1
         self._transform_generation += 1
+        self._data_export_generation += 1
         if self._running_profile_job is not None:
             self._running_profile_job.cancel()
             self._running_profile_job = None
@@ -1556,6 +1585,9 @@ class MainWindow(QMainWindow):
         if self._running_transform_job is not None:
             self._running_transform_job.cancel()
             self._running_transform_job = None
+        if self._running_data_export_job is not None:
+            self._running_data_export_job.cancel()
+            self._running_data_export_job = None
         if self._text_label_model is not None:
             self._text_label_model.cancel_pending_queries()
             self._text_label_model = None
@@ -1585,6 +1617,7 @@ class MainWindow(QMainWindow):
         self._current_profile = None
         self._current_recommendations = ()
         self._current_text_corpus_id = None
+        self._sync_data_export_buttons()
         self._preview_table.setModel(None)
         self._preview_summary.setText("尚未导入数据。")
         self._profile_summary.setText("尚未生成数据画像。")
@@ -1619,6 +1652,7 @@ class MainWindow(QMainWindow):
         self._current_tabular_table_name = table_name
         self._current_tabular_columns = columns
         self._current_text_corpus_id = None
+        self._sync_data_export_buttons()
         self._refresh_transform_columns(columns)
         self._clear_transform_steps()
         self._set_transform_panel_enabled(True)
@@ -1655,6 +1689,7 @@ class MainWindow(QMainWindow):
         )
         self._current_tabular_table_name = None
         self._current_tabular_columns = ()
+        self._sync_data_export_buttons()
         self._refresh_transform_columns(())
         self._clear_transform_steps()
         self._set_transform_panel_enabled(False, "文本语料暂不使用表格转换面板。")
@@ -1715,6 +1750,7 @@ class MainWindow(QMainWindow):
         self._current_tabular_table_name = result.table_name
         self._current_tabular_columns = result.columns
         self._current_text_corpus_id = None
+        self._sync_data_export_buttons()
         self._refresh_transform_columns(result.columns)
         self._clear_transform_steps()
         self._set_transform_panel_enabled(True)
@@ -1744,6 +1780,7 @@ class MainWindow(QMainWindow):
         self._add_project_dataset_entry(ProjectDatasetEntry.from_handle(handle))
         self._current_tabular_table_name = None
         self._current_tabular_columns = ()
+        self._sync_data_export_buttons()
         self._refresh_transform_columns(())
         self._clear_transform_steps()
         self._set_transform_panel_enabled(False, "文本语料暂不使用表格转换面板。")
@@ -1761,6 +1798,7 @@ class MainWindow(QMainWindow):
     def _load_text_label_workspace(self, result: TextCorpusImportResult) -> None:
         corpus_id = result.handle.cache_key or result.handle.id
         self._current_text_corpus_id = corpus_id
+        self._sync_data_export_buttons()
         self._text_undo_stack.clear()
         self._selected_text_record = None
         self._refresh_text_label_categories()
@@ -2251,6 +2289,182 @@ class MainWindow(QMainWindow):
     def _render_chart_document(self, document: PlotlyChartDocument) -> None:
         self._chart_view.render_document(document)
         self._stack.setCurrentIndex(4)
+
+    def _export_current_tabular_data(self) -> None:
+        if self._current_tabular_table_name is None:
+            self.show_user_error(
+                UserFacingError(
+                    code="DATA_EXPORT_NO_TABLE",
+                    title_zh="没有可导出的表格",
+                    message_zh="当前没有已导入或转换后的表格数据。",
+                    next_action_zh="请先导入表格，或生成转换预览表后再导出。",
+                )
+            )
+            return
+        selection = self._choose_data_export_path(
+            title="导出处理后表格",
+            stem=self._current_tabular_table_name,
+            default_format=DataExportFormat.CSV,
+            formats=(DataExportFormat.CSV, DataExportFormat.PARQUET),
+        )
+        if selection is None:
+            return
+        destination, export_format = selection
+        self._export_tabular_data_to_path(destination, export_format)
+
+    def _export_current_text_data(self) -> None:
+        if self._current_text_corpus_id is None:
+            self.show_user_error(
+                UserFacingError(
+                    code="DATA_EXPORT_NO_TEXT_CORPUS",
+                    title_zh="没有可导出的文本语料",
+                    message_zh="当前没有已录入或导入的文本语料。",
+                    next_action_zh="请先录入文本语句，或打开包含文本语料的项目。",
+                )
+            )
+            return
+        selection = self._choose_data_export_path(
+            title="导出文本语料",
+            stem="text-corpus",
+            default_format=DataExportFormat.JSONL,
+            formats=(DataExportFormat.JSONL, DataExportFormat.CSV),
+        )
+        if selection is None:
+            return
+        destination, export_format = selection
+        self._export_text_data_to_path(destination, export_format)
+
+    def _choose_data_export_path(
+        self,
+        *,
+        title: str,
+        stem: str,
+        default_format: DataExportFormat,
+        formats: tuple[DataExportFormat, ...],
+    ) -> tuple[Path, DataExportFormat] | None:
+        default_dir = Path.home() / "Documents"
+        if not default_dir.exists():
+            default_dir = self._paths.config_dir
+        suggested = default_dir / (_safe_export_stem(stem) + f".{default_format.value}")
+        filters = ";;".join(_data_export_filter(export_format) for export_format in formats)
+        selected, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            title,
+            str(suggested),
+            filters,
+        )
+        if not selected:
+            return None
+        export_format = _data_export_format_for_selection(
+            Path(selected),
+            selected_filter,
+            default_format,
+            formats,
+        )
+        destination = _ensure_data_export_suffix(Path(selected), export_format)
+        return destination, export_format
+
+    def _export_tabular_data_to_path(
+        self,
+        destination: Path,
+        export_format: DataExportFormat,
+    ) -> None:
+        table_name = self._current_tabular_table_name
+        if table_name is None:
+            self._export_current_tabular_data()
+            return
+        self._start_data_export_job(
+            name="tabular_data_export",
+            message_zh=f"正在导出 {export_format.value.upper()} 表格",
+            work=lambda context: self._data_export_service.export_tabular(
+                table_name,
+                destination,
+                export_format,
+                context=context,
+            ),
+        )
+
+    def _export_text_data_to_path(
+        self,
+        destination: Path,
+        export_format: DataExportFormat,
+    ) -> None:
+        corpus_id = self._current_text_corpus_id
+        if corpus_id is None:
+            self._export_current_text_data()
+            return
+        self._start_data_export_job(
+            name="text_data_export",
+            message_zh=f"正在导出 {export_format.value.upper()} 文本",
+            work=lambda context: self._data_export_service.export_text_corpus(
+                corpus_id,
+                destination,
+                export_format,
+                context=context,
+            ),
+        )
+
+    def _start_data_export_job(
+        self,
+        *,
+        name: str,
+        message_zh: str,
+        work: Callable[[JobContext], DataExportResult],
+    ) -> None:
+        if self._running_data_export_job is not None:
+            self._running_data_export_job.cancel()
+        self._data_export_generation += 1
+        generation = self._data_export_generation
+        self._jobs_label.setText(f"后台任务：{message_zh}")
+        job: QtJobRunner[DataExportResult] = QtJobRunner(name, work)
+        self._running_data_export_job = job
+        job.signals.progress.connect(self._on_data_export_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_data_export_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _on_data_export_progress(self, progress: JobProgress) -> None:
+        if self._is_disposed or progress.state is not JobState.RUNNING:
+            return
+        percent_text = "" if progress.percent is None else f"{progress.percent}% "
+        self._jobs_label.setText(f"后台任务：{percent_text}{progress.message_zh}")
+
+    def _on_data_export_completed(
+        self,
+        expected_generation: int,
+        outcome: JobOutcome[DataExportResult],
+    ) -> None:
+        if self._is_disposed or expected_generation != self._data_export_generation:
+            return
+        self._running_data_export_job = None
+        if outcome.state is JobState.CANCELLED:
+            self._jobs_label.setText("后台任务：数据导出已取消")
+            return
+        if outcome.state is JobState.SUCCEEDED and outcome.value is not None:
+            result = outcome.value
+            self._jobs_label.setText("后台任务：数据导出完成")
+            self._error_label.setText(
+                f"数据已导出：{result.path}（{result.row_count} 行，{result.bytes_written} 字节）"
+            )
+            self.statusBar().showMessage("数据导出完成", 5000)
+            return
+        self._jobs_label.setText("后台任务：数据导出失败")
+        if isinstance(outcome.error, UserFacingError):
+            self.show_user_error(outcome.error)
+            return
+        self.show_user_error(
+            UserFacingError(
+                code="DATA_EXPORT_UNEXPECTED_FAILURE",
+                title_zh="数据导出失败",
+                message_zh="导出处理后数据时发生未预期错误。",
+                next_action_zh="请确认目标文件夹可写，换一个文件名后重试。",
+                technical_detail=repr(outcome.error),
+            )
+        )
 
     def _on_chart_export_requested(self, export_format_value: str) -> None:
         try:
@@ -2761,6 +2975,36 @@ def _field_profile_text(column: ColumnProfile) -> str:
         f"{column.name} · {_semantic_type_text(column.semantic_type.value)} · "
         f"缺失 {column.null_count} · 不同值 {distinct}{warnings}"
     )
+
+
+def _data_export_filter(export_format: DataExportFormat) -> str:
+    return {
+        DataExportFormat.CSV: "CSV 文件 (*.csv)",
+        DataExportFormat.PARQUET: "Parquet 文件 (*.parquet)",
+        DataExportFormat.JSONL: "JSONL 文件 (*.jsonl)",
+    }[export_format]
+
+
+def _data_export_format_for_selection(
+    path: Path,
+    selected_filter: str,
+    default_format: DataExportFormat,
+    formats: tuple[DataExportFormat, ...],
+) -> DataExportFormat:
+    suffix = path.suffix.lower().lstrip(".")
+    for export_format in formats:
+        if suffix == export_format.value:
+            return export_format
+    for export_format in formats:
+        if export_format.value in selected_filter.casefold():
+            return export_format
+    return default_format
+
+
+def _ensure_data_export_suffix(path: Path, export_format: DataExportFormat) -> Path:
+    if path.suffix.lower() == f".{export_format.value}":
+        return path
+    return path.with_suffix(f".{export_format.value}")
 
 
 def _safe_export_stem(title: str) -> str:

@@ -41,10 +41,10 @@ Date: 2026-07-13
 - Added the first `.qiproject` persistence foundation: versioned project manifests, atomic ZIP packages containing `manifest.json` and `project.duckdb`, safe archive path/size checks, workspace restore, source-file evidence validation, and guarded source relocation.
 - Added main-window project open/save/save-as actions: project operations run in background jobs, imported tabular/text datasets and derived transform preview tables are tracked as project entries, reopened projects restore DuckDB-backed table previews or text labeling state, and missing/mismatched source files are surfaced as user-visible warnings.
 - Added a user-facing source relocation dialog for missing or mismatched external source files. The dialog lists affected datasets, lets the user choose the moved original file, validates saved size and content sample evidence before updating the in-memory manifest, and keeps the relocation toolbar action disabled when no source issue remains.
+- Added processed-data export: the active imported or transformed tabular table can be exported to CSV or Parquet, active text corpora can be exported to JSONL or CSV with category/tag metadata, exports run in background jobs, temporary files are completed before final rename, and existing target files are refused by default.
 
 ## Remaining Work
 
-- Add processed data and text export.
 - Add safe category rename/merge/delete audit for text labels.
 - Continue committing once per completed milestone or coherent stage.
 
@@ -131,7 +131,12 @@ Date: 2026-07-13
 - M5 source relocation dialog targeted `pytest tests\integration\test_project_persistence.py tests\ui\test_main_window.py`: exit 0; 23 tests passed.
 - M5 source relocation dialog `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 50 source files, pytest passed 86 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 source relocation dialog `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M5 processed data export targeted `pytest tests\integration\test_data_export.py tests\ui\test_main_window.py -k "export"`: exit 0; 3 tests passed and 20 were deselected.
+- M5 processed data export targeted `ruff check src\quick_insight\application\data_export.py src\quick_insight\infrastructure\workspace.py src\quick_insight\ui\main_window.py tests\integration\test_data_export.py tests\ui\test_main_window.py`: exit 0; all checks passed.
+- M5 processed data export targeted `mypy src\quick_insight`: exit 0; no issues found in 51 source files.
+- M5 processed data export `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 51 source files, pytest passed 89 tests on Python 3.13.14 / PySide6 6.11.1.
+- M5 processed data export `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Add processed tabular-data export and text-data export.
+Add safe category rename/merge/delete audit for text labels.

@@ -68,7 +68,7 @@ M5 is active.
   - [x] Safe archive validation plus source evidence validation/relocation.
   - [x] Main-window save/open actions and project state restoration.
   - [x] User-facing source relocation dialog for missing or mismatched source files.
-- [ ] Processed data and text export.
+- [x] Processed data and text export.
 - [ ] Safe category rename/merge/delete audit for text labels.
 
 ## M6 - Performance, Hardening, And Release

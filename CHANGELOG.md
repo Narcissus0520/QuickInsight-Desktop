@@ -29,4 +29,5 @@
 - Added the first `.qiproject` persistence foundation: versioned ZIP project packages with `manifest.json` and `project.duckdb`, atomic save/open, safe archive path and size checks, source-file evidence validation, and guarded source relocation.
 - Added main-window project open/save/save-as actions that run in background jobs, track tabular/text/derived transform datasets in the project manifest, restore DuckDB-backed previews and text labeling state after reopen, and surface source-reference warnings.
 - Added a user-facing source relocation dialog for missing or mismatched external source files; moved files are accepted only after saved size and content sample evidence match the project record.
-- Advanced category governance and processed export remain future milestones.
+- Added processed-data export: current tabular/imported/transform-preview tables export to CSV or Parquet, current text corpora export to JSONL or CSV with category/tag metadata, exports run in background jobs, and existing target files are refused by default.
+- Advanced category governance remains a future milestone.

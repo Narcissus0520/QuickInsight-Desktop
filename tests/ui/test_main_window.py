@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QTableView,
 )
 
+from quick_insight.application.data_export import DataExportFormat
 from quick_insight.application.importing import TabularImportService
 from quick_insight.application.project import (
     ProjectDatasetEntry,
@@ -196,6 +199,49 @@ def test_main_window_transform_panel_generates_non_destructive_preview(
     assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：2"
     assert "源表" in status.text()
     assert steps.count() == 0
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+
+
+def test_main_window_exports_current_tabular_and_text_data(
+    qtbot,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("region,amount\nNorth,10\nSouth,20\n", encoding="utf-8")
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    tabular_service = TabularImportService(workspace)
+    tabular_result = tabular_service.import_csv(tabular_service.preview_csv(source))
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+
+    window._show_import_result(tabular_result)
+    assert window.findChild(QPushButton, "exportTabularDataButton").isEnabled() is True
+    assert window.findChild(QPushButton, "exportTextDataButton").isEnabled() is False
+    tabular_export = tmp_path / "current-table.csv"
+    window._export_tabular_data_to_path(tabular_export, DataExportFormat.CSV)
+    qtbot.waitUntil(lambda: window._running_data_export_job is None, timeout=6000)
+
+    assert tabular_export.read_text(encoding="utf-8").startswith("region,amount")
+    assert "North,10" in tabular_export.read_text(encoding="utf-8")
+    assert "数据已导出" in window.findChild(QLabel, "errorLabel").text()
+
+    text_result = TextCorpusService(workspace).import_preview(
+        TextCorpusService(workspace).preview_text(
+            "第一条\n第二条",
+            display_name="文本导出",
+        )
+    )
+    window._show_text_corpus_result(text_result)
+    assert window.findChild(QPushButton, "exportTabularDataButton").isEnabled() is False
+    assert window.findChild(QPushButton, "exportTextDataButton").isEnabled() is True
+    text_export = tmp_path / "current-text.jsonl"
+    window._export_text_data_to_path(text_export, DataExportFormat.JSONL)
+    qtbot.waitUntil(lambda: window._running_data_export_job is None, timeout=6000)
+
+    payloads = [json.loads(line) for line in text_export.read_text(encoding="utf-8").splitlines()]
+    assert {payload["content"] for payload in payloads} == {"第一条", "第二条"}
+    assert "数据已导出" in window.findChild(QLabel, "errorLabel").text()
     qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
 
 

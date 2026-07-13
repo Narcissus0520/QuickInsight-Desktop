@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from contextlib import suppress
 from dataclasses import dataclass
@@ -130,6 +131,14 @@ class WorkspaceDatabase:
         with self._connect() as connection:
             connection.execute(
                 f"COPY {quote_identifier(table_name)} TO ? (FORMAT PARQUET)",
+                [str(destination)],
+            )
+
+    def export_table_to_csv(self, table_name: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.execute(
+                f"COPY {quote_identifier(table_name)} TO ? (FORMAT CSV, HEADER TRUE)",
                 [str(destination)],
             )
 
@@ -444,6 +453,114 @@ class WorkspaceDatabase:
                 [corpus_id],
             ).fetchall()
         return {str(row[0]): int(row[1]) for row in rows}
+
+    def export_text_corpus_to_csv(self, corpus_id: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            cursor = connection.execute(
+                """
+                SELECT
+                    r.id,
+                    r.content,
+                    COALESCE(c.name, '') AS primary_category,
+                    COALESCE(tags.tags, '') AS tags,
+                    COALESCE(r.source, '') AS source,
+                    COALESCE(r.location, '') AS location,
+                    COALESCE(r.speaker, '') AS speaker,
+                    r.record_time,
+                    r.note,
+                    r.custom_fields_json,
+                    r.created_at,
+                    r.updated_at,
+                    r.schema_version
+                FROM text_records AS r
+                LEFT JOIN text_categories AS c ON r.primary_category_id = c.id
+                LEFT JOIN (
+                    SELECT
+                        record_id,
+                        STRING_AGG(tag, ', ' ORDER BY tag_order ASC, tag ASC) AS tags
+                    FROM text_record_tags
+                    GROUP BY record_id
+                ) AS tags ON r.id = tags.record_id
+                WHERE r.corpus_id = ?
+                ORDER BY r.created_at ASC, r.id ASC
+                """,
+                [corpus_id],
+            )
+            with destination.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(
+                    [
+                        "id",
+                        "content",
+                        "primary_category",
+                        "tags",
+                        "source",
+                        "location",
+                        "speaker",
+                        "record_time",
+                        "note",
+                        "custom_fields_json",
+                        "created_at",
+                        "updated_at",
+                        "schema_version",
+                    ]
+                )
+                while True:
+                    rows = cursor.fetchmany(1000)
+                    if not rows:
+                        break
+                    writer.writerows(rows)
+
+    def export_text_corpus_to_jsonl(self, corpus_id: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            cursor = connection.execute(
+                """
+                SELECT
+                    r.id,
+                    r.content,
+                    COALESCE(c.name, '') AS primary_category,
+                    tags.tags,
+                    r.source,
+                    r.location,
+                    r.speaker,
+                    r.record_time,
+                    r.note,
+                    r.custom_fields_json,
+                    r.created_at,
+                    r.updated_at,
+                    r.schema_version
+                FROM text_records AS r
+                LEFT JOIN text_categories AS c ON r.primary_category_id = c.id
+                LEFT JOIN (
+                    SELECT
+                        record_id,
+                        LIST(tag ORDER BY tag_order ASC, tag ASC) AS tags
+                    FROM text_record_tags
+                    GROUP BY record_id
+                ) AS tags ON r.id = tags.record_id
+                WHERE r.corpus_id = ?
+                ORDER BY r.created_at ASC, r.id ASC
+                """,
+                [corpus_id],
+            )
+            with destination.open("w", encoding="utf-8", newline="\n") as stream:
+                while True:
+                    rows = cursor.fetchmany(1000)
+                    if not rows:
+                        break
+                    for row in rows:
+                        stream.write(
+                            json.dumps(
+                                _text_export_json_payload(row),
+                                ensure_ascii=False,
+                                default=str,
+                            )
+                            + "\n"
+                        )
 
     def row_count(self, table_name: str) -> int:
         with self._connect() as connection:
@@ -2064,6 +2181,48 @@ def _text_record_from_row(row: tuple[Any, ...], tags_by_record: dict[str, list[s
         schema_version=int(row[11]),
         tags=tuple(tags_by_record.get(record_id, ())),
     )
+
+
+def _text_export_json_payload(row: tuple[Any, ...]) -> dict[str, object]:
+    custom_fields = json.loads(str(row[9] or "{}"))
+    if not isinstance(custom_fields, dict):
+        custom_fields = {}
+    return {
+        "id": str(row[0]),
+        "content": str(row[1]),
+        "primary_category": str(row[2] or ""),
+        "tags": _text_export_tags(row[3]),
+        "source": _optional_text_export_value(row[4]),
+        "location": _optional_text_export_value(row[5]),
+        "speaker": _optional_text_export_value(row[6]),
+        "record_time": _datetime_text_export_value(row[7]),
+        "note": str(row[8] or ""),
+        "custom_fields": custom_fields,
+        "created_at": _datetime_text_export_value(row[10]),
+        "updated_at": _datetime_text_export_value(row[11]),
+        "schema_version": int(row[12]),
+    }
+
+
+def _text_export_tags(value: object) -> list[str]:
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value if str(item)]
+    return []
+
+
+def _optional_text_export_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text or None
+
+
+def _datetime_text_export_value(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if value is None:
+        return None
+    return str(value)
 
 
 def _category_from_row(row: tuple[Any, ...]) -> Category:
