@@ -6,7 +6,7 @@ Date: 2026-07-13
 
 - Version: `0.0.0`
 - Milestone: M2 profiling, one-click analysis, and text corpus workflow
-- Status: M1 tabular import and virtual preview accepted; M2 is the next active milestone.
+- Status: M1 tabular import and virtual preview accepted; M2 is active.
 
 ## Completed Work
 
@@ -22,10 +22,11 @@ Date: 2026-07-13
 - Moved confirmed tabular import execution into a Qt background job with progress, cancellation request, and user-facing error display.
 - Moved paged table reads into background jobs with cancellation and stale-result rejection.
 - Added direct UI coverage for malformed CSV, Excel, Parquet, and missing-source import error paths.
+- Added the first M2 slice: DuckDB-backed full-scan column statistics, deterministic semantic type inference, dataset/profile warnings, and unit/integration tests.
 
 ## Remaining Work
 
-- Implement M2 semantic type inference and tabular quality/profile services.
+- Complete M2 tabular quality checks, duplicate detection, parse-failure reporting, and profile UI integration.
 - Add structured findings with reproducible evidence.
 - Begin text entry/import/splitting and category/tag persistence.
 - Continue committing once per completed milestone or coherent stage.
@@ -33,7 +34,8 @@ Date: 2026-07-13
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
-- Profiling, charting, transforms, and project persistence are not implemented yet.
+- Full quality checks, one-click analysis, charting, transforms, and project persistence are not implemented yet.
+- Profile results are available as an application service but are not yet exposed in the GUI.
 - Text corpus workflows are not implemented yet.
 
 ## Latest Test And Build Results
@@ -68,7 +70,9 @@ Date: 2026-07-13
 - `git push`: exit 0; pushed `627ed95` to `origin/main`.
 - M1 error-path slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 34 source files, pytest passed 30 tests on Python 3.13.14 / PySide6 6.11.1.
 - M1 error-path slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M2 tabular profiling slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 35 source files, pytest passed 37 tests on Python 3.13.14 / PySide6 6.11.1.
+- M2 tabular profiling slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Commit the completed M1 error-path slice, then begin M2 with semantic type inference and tabular profile services.
+Continue M2 with full tabular quality checks and structured findings.

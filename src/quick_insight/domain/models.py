@@ -46,6 +46,7 @@ class DatasetProfile:
     approximate: bool = False
     sample_row_count: int | None = None
     method: str = "not_profiled"
+    summary: dict[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
 

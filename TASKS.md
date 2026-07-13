@@ -15,7 +15,7 @@
 
 ## M1 - Tabular Import And Virtual Preview
 
-M1 is active.
+M1 is accepted.
 
 - [x] CSV/TSV import wizard with preview/confirmation.
 - [x] Excel and Parquet preview path.
@@ -30,7 +30,8 @@ M1 is active.
 
 M2 is active.
 
-- [ ] Semantic type inference and quality/profile services.
+- [x] Basic tabular semantic type inference and DuckDB-backed profile service.
+- [ ] Full tabular quality checks, duplicate detection, parse-failure reporting, and profile UI integration.
 - [ ] Structured findings with evidence.
 - [ ] Text entry/import/splitting and category/tag persistence.
 - [ ] Virtualized text labeling workspace.
