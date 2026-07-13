@@ -35,7 +35,7 @@ M2 is active.
 - [x] Quality-focused structured findings with reproducible evidence.
 - [x] One-click analysis findings for trends, correlations, and group differences.
 - [x] Text entry/import/splitting and category/tag persistence.
-- [ ] Text corpus profiling and quality checks.
+- [x] Text corpus profiling and quality checks.
 - [ ] Virtualized text labeling workspace.
 
 ## M3 - Explainable Chart Recommendation

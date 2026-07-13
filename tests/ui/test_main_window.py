@@ -150,6 +150,15 @@ def test_main_window_shows_text_corpus_result(qtbot, tmp_path) -> None:  # type:
 
     assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：2"
     assert window.findChild(QLabel, "queryTimeLabel").text() == "查询：文本语料已保存"
+    qtbot.waitUntil(
+        lambda: window.findChild(QLabel, "profileSummaryLabel")
+        .text()
+        .startswith("文本画像完成"),
+        timeout=3000,
+    )
+    assert "未分类 2" in window.findChild(QLabel, "profileSummaryLabel").text()
+    assert window.findChild(QListWidget, "profileFieldsList").count() == 4
+    assert window.findChild(QListWidget, "profileFindingsList").count() >= 1
 
 
 def test_import_dialog_shows_bad_csv_encoding_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

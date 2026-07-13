@@ -32,6 +32,7 @@ from quick_insight.application.importing import TabularImportResult, TabularImpo
 from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
 from quick_insight.application.profiling import TabularProfiler
 from quick_insight.application.text_corpus import TextCorpusImportResult, TextCorpusService
+from quick_insight.application.text_profiling import TextCorpusProfiler
 from quick_insight.domain.models import ColumnProfile, DatasetProfile
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
@@ -386,8 +387,9 @@ class MainWindow(QMainWindow):
         self._approximation_label.setText("近似：无")
         self._jobs_label.setText("后台任务：空闲")
         self._error_label.setText("无错误")
-        self._stack.setCurrentIndex(5)
-        self.statusBar().showMessage("文本语料已保存", 5000)
+        self._stack.setCurrentIndex(2)
+        self.statusBar().showMessage("文本语料已保存，正在生成画像", 5000)
+        self._start_text_profile_job(result)
 
     def _on_destroyed(self) -> None:
         self._is_disposed = True
@@ -427,6 +429,35 @@ class MainWindow(QMainWindow):
         )
         QThreadPool.globalInstance().start(job)
 
+    def _start_text_profile_job(self, result: TextCorpusImportResult) -> None:
+        if self._running_profile_job is not None:
+            self._running_profile_job.cancel()
+        self._profile_generation += 1
+        generation = self._profile_generation
+        handle = result.handle
+        corpus_id = handle.cache_key or handle.id
+        self._profile_summary.setText("正在生成文本语料画像和质量检查...")
+        self._profile_fields.clear()
+        self._profile_findings.clear()
+        self._jobs_label.setText("后台任务：正在生成文本画像")
+        job = QtJobRunner(
+            "text_corpus_profile",
+            lambda context: self._profile_text_corpus(
+                context,
+                dataset_id=handle.id,
+                corpus_id=corpus_id,
+            ),
+        )
+        self._running_profile_job = job
+        job.signals.progress.connect(self._on_profile_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_profile_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
     def _profile_table(
         self,
         context: JobContext,
@@ -448,6 +479,21 @@ class MainWindow(QMainWindow):
         )
         context.progress(90, "正在整理画像结果")
         return replace(profile, findings=profile.findings + analysis_findings)
+
+    def _profile_text_corpus(
+        self,
+        context: JobContext,
+        *,
+        dataset_id: str,
+        corpus_id: str,
+    ) -> DatasetProfile:
+        context.progress(20, "正在扫描文本记录和分类信息")
+        profile = TextCorpusProfiler(self._workspace).profile_corpus(
+            dataset_id,
+            corpus_id,
+        )
+        context.progress(90, "正在整理文本画像结果")
+        return profile
 
     def _on_profile_progress(self, progress: JobProgress) -> None:
         if self._is_disposed:
@@ -506,6 +552,9 @@ class MainWindow(QMainWindow):
     def _show_profile(self, profile: DatasetProfile) -> None:
         if not self._profile_widgets_available():
             return
+        if profile.method == "text_corpus_full_scan":
+            self._show_text_profile(profile)
+            return
         quality = profile.summary.get("quality")
         quality_summary = quality if isinstance(quality, dict) else {}
         column_count = profile.summary.get("column_count", len(profile.column_profiles))
@@ -528,6 +577,30 @@ class MainWindow(QMainWindow):
         self._jobs_label.setText("后台任务：空闲")
         self._stack.setCurrentIndex(2)
         self.statusBar().showMessage("数据画像完成", 5000)
+
+    def _show_text_profile(self, profile: DatasetProfile) -> None:
+        categorized_count = profile.summary.get("categorized_count", 0)
+        uncategorized_count = profile.summary.get("uncategorized_count", 0)
+        duplicate_text = profile.summary.get("exact_duplicate_record_count", 0)
+        missing_source = profile.summary.get("missing_source_count", 0)
+        self._profile_summary.setText(
+            f"文本画像完成：{profile.row_count} 条记录；"
+            f"已分类 {categorized_count}，未分类 {uncategorized_count}；"
+            f"重复文本 {duplicate_text}；缺少来源 {missing_source}。"
+        )
+        self._profile_fields.clear()
+        for column in profile.column_profiles:
+            self._profile_fields.addItem(_field_profile_text(column))
+        self._profile_findings.clear()
+        if profile.findings:
+            for finding in profile.findings:
+                self._profile_findings.addItem(finding.statement)
+        else:
+            self._profile_findings.addItem("未发现明显文本质量问题。")
+        self._approximation_label.setText("近似：是" if profile.approximate else "近似：无")
+        self._jobs_label.setText("后台任务：空闲")
+        self._stack.setCurrentIndex(2)
+        self.statusBar().showMessage("文本画像完成", 5000)
 
 
 def _field_profile_text(column: ColumnProfile) -> str:
