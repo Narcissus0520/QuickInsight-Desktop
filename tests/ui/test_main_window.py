@@ -71,3 +71,54 @@ def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # t
     qtbot.waitUntil(lambda: dialog.import_result is not None, timeout=3000)
 
     assert dialog.import_result.handle.row_count == 1
+
+
+def test_import_dialog_shows_bad_csv_encoding_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "bad.csv"
+    source.write_bytes(b"\xff\xff\x00\xfe")
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    dialog = TabularImportDialog(service=service, initial_path=source)
+    qtbot.addWidget(dialog)
+
+    assert "无法识别文件编码" in dialog._status_label.text()
+    assert dialog.import_result is None
+
+
+def test_import_dialog_shows_bad_parquet_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "bad.parquet"
+    source.write_text("not parquet", encoding="utf-8")
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    dialog = TabularImportDialog(service=service, initial_path=source)
+    qtbot.addWidget(dialog)
+
+    assert "无法预览 Parquet 文件" in dialog._status_label.text()
+    assert dialog.import_result is None
+
+
+def test_import_dialog_shows_bad_excel_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "bad.xlsx"
+    source.write_text("not excel", encoding="utf-8")
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    dialog = TabularImportDialog(service=service, initial_path=source)
+    qtbot.addWidget(dialog)
+
+    assert "无法预览 Excel 文件" in dialog._status_label.text()
+    assert dialog.import_result is None
+
+
+def test_import_dialog_shows_missing_source_on_confirm(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("name,amount\nalpha,1\n", encoding="utf-8")
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    dialog = TabularImportDialog(service=service, initial_path=source)
+    qtbot.addWidget(dialog)
+    source.unlink()
+
+    dialog._confirm()
+    qtbot.waitUntil(lambda: "找不到文件" in dialog._status_label.text(), timeout=3000)
+
+    assert dialog.import_result is None

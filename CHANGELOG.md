@@ -10,4 +10,5 @@
 - Added normalized Parquet cache export and source fingerprint invalidation checks for confirmed tabular imports.
 - Moved confirmed tabular imports into a Qt background job with progress, cancellation request, and user-facing failure handling.
 - Moved DuckDB preview page reads into background jobs with cancellation and stale-result rejection.
+- Added direct malformed-file import UI coverage and closed M1 tabular import/virtual preview tasks.
 - Packaging, import, analysis, charting, transforms, and project persistence remain future milestones.

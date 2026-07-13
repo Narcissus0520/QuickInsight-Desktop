@@ -24,9 +24,11 @@ M1 is active.
 - [x] Safe paged table model backed by DuckDB.
 - [x] Background import jobs with progress, cancellation request, and clear errors.
 - [x] Background paged query jobs with stale-result rejection and cancellation.
-- [ ] Expanded import error-path UI coverage for malformed CSV/Excel/Parquet files.
+- [x] Expanded import error-path UI coverage for malformed CSV/Excel/Parquet files.
 
 ## M2 - Profiling, One-Click Analysis, And Text Corpus Workflow
+
+M2 is active.
 
 - [ ] Semantic type inference and quality/profile services.
 - [ ] Structured findings with evidence.

@@ -5,8 +5,8 @@ Date: 2026-07-13
 ## Current Version And Milestone
 
 - Version: `0.0.0`
-- Milestone: M1 tabular import and virtual preview
-- Status: M0 foundation accepted; M1 is the next active milestone.
+- Milestone: M2 profiling, one-click analysis, and text corpus workflow
+- Status: M1 tabular import and virtual preview accepted; M2 is the next active milestone.
 
 ## Completed Work
 
@@ -21,17 +21,20 @@ Date: 2026-07-13
 - Added normalized Parquet cache export for confirmed imports and source fingerprint invalidation checks.
 - Moved confirmed tabular import execution into a Qt background job with progress, cancellation request, and user-facing error display.
 - Moved paged table reads into background jobs with cancellation and stale-result rejection.
+- Added direct UI coverage for malformed CSV, Excel, Parquet, and missing-source import error paths.
 
 ## Remaining Work
 
-- Expand import error-path UI coverage for malformed CSV, Excel, and Parquet files.
+- Implement M2 semantic type inference and tabular quality/profile services.
+- Add structured findings with reproducible evidence.
+- Begin text entry/import/splitting and category/tag persistence.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
 - Profiling, charting, transforms, and project persistence are not implemented yet.
-- Import error handling exists, but malformed-file UI coverage needs more direct tests before closing M1.
+- Text corpus workflows are not implemented yet.
 
 ## Latest Test And Build Results
 
@@ -61,7 +64,11 @@ Date: 2026-07-13
 - `git push`: exit 0; pushed the background import stage to `origin/main`.
 - Background paged query slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 34 source files, pytest passed 26 tests on Python 3.13.14 / PySide6 6.11.1.
 - Background paged query slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- `git commit -m "feat: fetch preview pages in background"`: exit 0; created commit `627ed95`.
+- `git push`: exit 0; pushed `627ed95` to `origin/main`.
+- M1 error-path slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 34 source files, pytest passed 30 tests on Python 3.13.14 / PySide6 6.11.1.
+- M1 error-path slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Commit the background paged query slice, then continue M1 with direct malformed-file import error UI coverage.
+Commit the completed M1 error-path slice, then begin M2 with semantic type inference and tabular profile services.

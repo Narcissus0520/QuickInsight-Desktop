@@ -5,6 +5,7 @@ from pathlib import Path
 
 import polars as pl
 
+from quick_insight.application.errors import UserFacingError
 from quick_insight.application.jobs import JobContext
 from quick_insight.domain.enums import DatasetKind
 from quick_insight.domain.models import DatasetHandle
@@ -89,11 +90,14 @@ class TabularImportService:
     ) -> TabularImportResult:
         if context is not None:
             context.progress(10, "正在计算源文件指纹")
-        fingerprint = fingerprint_file(preview.path)
+        fingerprint = _fingerprint_source(preview.path)
         table_name = table_name_for_fingerprint(fingerprint)
         if context is not None:
             context.progress(35, "正在写入本地 DuckDB 工作区")
-        self._workspace.import_csv(preview.path, table_name, preview.options)
+        try:
+            self._workspace.import_csv(preview.path, table_name, preview.options)
+        except Exception as exc:
+            raise _import_failed_error(preview.path, exc) from exc
         if context is not None:
             context.progress(80, "正在读取表结构")
         return self._result_from_table(preview, display_name, fingerprint, table_name)
@@ -103,7 +107,7 @@ class TabularImportService:
             return False
         if not handle.source_path.exists():
             return False
-        return fingerprint_file(handle.source_path) == handle.fingerprint
+        return _fingerprint_source(handle.source_path) == handle.fingerprint
 
     def normalized_cache_path(self, fingerprint: str) -> Path:
         return self._normalized_cache_dir / f"{fingerprint[:16]}.parquet"
@@ -117,11 +121,14 @@ class TabularImportService:
     ) -> TabularImportResult:
         if context is not None:
             context.progress(10, "正在计算源文件指纹")
-        fingerprint = fingerprint_file(preview.path)
+        fingerprint = _fingerprint_source(preview.path)
         table_name = table_name_for_fingerprint(fingerprint)
         if context is not None:
             context.progress(35, "正在写入本地 DuckDB 工作区")
-        self._workspace.import_parquet(preview.path, table_name)
+        try:
+            self._workspace.import_parquet(preview.path, table_name)
+        except Exception as exc:
+            raise _import_failed_error(preview.path, exc) from exc
         return self._result_from_table(preview, display_name, fingerprint, table_name)
 
     def _import_excel(
@@ -133,19 +140,25 @@ class TabularImportService:
     ) -> TabularImportResult:
         if context is not None:
             context.progress(10, "正在计算源文件指纹")
-        fingerprint = fingerprint_file(preview.path)
+        fingerprint = _fingerprint_source(preview.path)
         table_name = table_name_for_fingerprint(fingerprint)
         if context is not None:
             context.progress(35, "正在读取 Excel 工作表")
-        frame = pl.read_excel(
-            preview.path,
-            sheet_name=str(preview.options.get("sheet_name") or "Sheet1"),
-            engine="calamine",
-            has_header=True,
-        )
+        try:
+            frame = pl.read_excel(
+                preview.path,
+                sheet_name=str(preview.options.get("sheet_name") or "Sheet1"),
+                engine="calamine",
+                has_header=True,
+            )
+        except Exception as exc:
+            raise _import_failed_error(preview.path, exc) from exc
         if context is not None:
             context.progress(70, "正在写入本地 DuckDB 工作区")
-        self._workspace.import_polars_dataframe(frame, table_name)
+        try:
+            self._workspace.import_polars_dataframe(frame, table_name)
+        except Exception as exc:
+            raise _import_failed_error(preview.path, exc) from exc
         return self._result_from_table(preview, display_name, fingerprint, table_name)
 
     def _result_from_table(
@@ -178,7 +191,16 @@ class TabularImportService:
 
     def _write_normalized_cache(self, table_name: str, fingerprint: str) -> Path:
         destination = self.normalized_cache_path(fingerprint)
-        self._workspace.export_table_to_parquet(table_name, destination)
+        try:
+            self._workspace.export_table_to_parquet(table_name, destination)
+        except Exception as exc:
+            raise UserFacingError(
+                code="IMPORT_CACHE_WRITE_FAILED",
+                title_zh="无法写入本地缓存",
+                message_zh="数据已导入工作区，但无法生成标准化 Parquet 缓存。",
+                next_action_zh="请检查磁盘空间和缓存目录权限后重试。",
+                technical_detail=str(exc),
+            ) from exc
         return destination
 
 
@@ -186,3 +208,26 @@ def _preview_options(preview: TabularPreview) -> dict[str, object]:
     if isinstance(preview, CsvPreview):
         return preview.options.to_dict()
     return preview.options
+
+
+def _fingerprint_source(path: Path) -> str:
+    try:
+        return fingerprint_file(path)
+    except OSError as exc:
+        raise UserFacingError(
+            code="IMPORT_SOURCE_UNAVAILABLE",
+            title_zh="找不到文件",
+            message_zh="预览后的源文件已移动、删除或暂时不可访问。",
+            next_action_zh="请重新选择文件并再次预览。",
+            technical_detail=str(exc),
+        ) from exc
+
+
+def _import_failed_error(path: Path, exc: Exception) -> UserFacingError:
+    return UserFacingError(
+        code="IMPORT_WORKSPACE_WRITE_FAILED",
+        title_zh="导入失败",
+        message_zh="无法把文件写入本地 DuckDB 工作区。",
+        next_action_zh="请确认文件未被占用、格式正确，并重新预览后导入。",
+        technical_detail=f"{path}: {exc}",
+    )
