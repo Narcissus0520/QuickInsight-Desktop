@@ -62,7 +62,7 @@ class WelcomePage(QWidget):
         drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_title = QLabel("拖放文件到这里")
         drop_title.setObjectName("sectionTitle")
-        drop_hint = QLabel("M1 将接入表格预览确认；M2 将接入文本语句导入。")
+        drop_hint = QLabel("拖放表格文件可导入预览；文本语句请点击“录入文本语句”。")
         drop_hint.setObjectName("muted")
         drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_layout.addWidget(drop_title, alignment=Qt.AlignmentFlag.AlignCenter)

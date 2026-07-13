@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
+from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import duckdb
 import polars as pl
 
+from quick_insight.domain.models import Category, TextRecord
 from quick_insight.infrastructure.csv_import import CsvImportOptions
 from quick_insight.infrastructure.sql import quote_identifier
 
@@ -127,6 +131,157 @@ class WorkspaceDatabase:
                 f"COPY {quote_identifier(table_name)} TO ? (FORMAT PARQUET)",
                 [str(destination)],
             )
+
+    def save_text_corpus(
+        self,
+        corpus_id: str,
+        records: tuple[TextRecord, ...],
+        categories: tuple[Category, ...],
+    ) -> None:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            connection.execute("BEGIN TRANSACTION")
+            try:
+                record_ids = [
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT id FROM text_records WHERE corpus_id = ?",
+                        [corpus_id],
+                    ).fetchall()
+                ]
+                if record_ids:
+                    connection.executemany(
+                        "DELETE FROM text_record_tags WHERE record_id = ?",
+                        [(record_id,) for record_id in record_ids],
+                    )
+                connection.execute("DELETE FROM text_records WHERE corpus_id = ?", [corpus_id])
+                for category in categories:
+                    connection.execute(
+                        "DELETE FROM text_categories WHERE id = ? OR name = ?",
+                        [category.id, category.name],
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO text_categories (
+                            id, name, description, color, created_at, updated_at, schema_version
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            category.id,
+                            category.name,
+                            category.description,
+                            category.color,
+                            category.created_at,
+                            category.updated_at,
+                            category.schema_version,
+                        ],
+                    )
+                for record in records:
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO text_records (
+                            id, corpus_id, content, primary_category_id, source, location,
+                            speaker, record_time, note, custom_fields_json, created_at,
+                            updated_at, schema_version
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            record.id,
+                            corpus_id,
+                            record.content,
+                            record.primary_category_id,
+                            record.source,
+                            record.location,
+                            record.speaker,
+                            record.record_time,
+                            record.note,
+                            json.dumps(record.custom_fields, ensure_ascii=False),
+                            record.created_at,
+                            record.updated_at,
+                            record.schema_version,
+                        ],
+                    )
+                    if record.tags:
+                        connection.executemany(
+                            """
+                            INSERT OR REPLACE INTO text_record_tags (record_id, tag, tag_order)
+                            VALUES (?, ?, ?)
+                            """,
+                            [
+                                (record.id, tag, tag_index)
+                                for tag_index, tag in enumerate(record.tags)
+                            ],
+                        )
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+
+    def text_record_count(self, corpus_id: str) -> int:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            row = connection.execute(
+                "SELECT COUNT(*) FROM text_records WHERE corpus_id = ?",
+                [corpus_id],
+            ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    def list_text_records(self, corpus_id: str) -> tuple[TextRecord, ...]:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            rows = connection.execute(
+                """
+                SELECT
+                    id, content, primary_category_id, source, location, speaker,
+                    record_time, note, custom_fields_json, created_at, updated_at,
+                    schema_version
+                FROM text_records
+                WHERE corpus_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                [corpus_id],
+            ).fetchall()
+            tag_rows = connection.execute(
+                """
+                SELECT record_id, tag
+                FROM text_record_tags
+                WHERE record_id IN (
+                    SELECT id FROM text_records WHERE corpus_id = ?
+                )
+                ORDER BY record_id ASC, tag_order ASC, tag ASC
+                """,
+                [corpus_id],
+            ).fetchall()
+        tags_by_record: dict[str, list[str]] = {}
+        for record_id, tag in tag_rows:
+            tags_by_record.setdefault(str(record_id), []).append(str(tag))
+        return tuple(_text_record_from_row(row, tags_by_record) for row in rows)
+
+    def list_categories(self) -> tuple[Category, ...]:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            rows = connection.execute(
+                """
+                SELECT id, name, description, color, created_at, updated_at, schema_version
+                FROM text_categories
+                ORDER BY name ASC
+                """
+            ).fetchall()
+        return tuple(_category_from_row(row) for row in rows)
+
+    def category_usage_counts(self, corpus_id: str) -> dict[str, int]:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            rows = connection.execute(
+                """
+                SELECT primary_category_id, COUNT(*)
+                FROM text_records
+                WHERE corpus_id = ? AND primary_category_id IS NOT NULL
+                GROUP BY primary_category_id
+                """,
+                [corpus_id],
+            ).fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}
 
     def row_count(self, table_name: str) -> int:
         with self._connect() as connection:
@@ -480,6 +635,54 @@ class WorkspaceDatabase:
     def _connect(self) -> duckdb.DuckDBPyConnection:
         return duckdb.connect(str(self.path))
 
+    def _ensure_text_tables(self, connection: duckdb.DuckDBPyConnection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS text_categories (
+                id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL UNIQUE,
+                description VARCHAR NOT NULL,
+                color VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                schema_version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS text_records (
+                id VARCHAR PRIMARY KEY,
+                corpus_id VARCHAR NOT NULL,
+                content VARCHAR NOT NULL,
+                primary_category_id VARCHAR,
+                source VARCHAR,
+                location VARCHAR,
+                speaker VARCHAR,
+                record_time TIMESTAMP,
+                note VARCHAR NOT NULL,
+                custom_fields_json VARCHAR NOT NULL,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                schema_version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS text_record_tags (
+                record_id VARCHAR NOT NULL,
+                tag VARCHAR NOT NULL,
+                tag_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (record_id, tag)
+            )
+            """
+        )
+        with suppress(duckdb.CatalogException):
+            connection.execute(
+                "ALTER TABLE text_record_tags ADD COLUMN tag_order INTEGER DEFAULT 0"
+            )
+
     def _numeric_stats(
         self,
         connection: duckdb.DuckDBPyConnection,
@@ -552,3 +755,41 @@ def _is_numeric_type(data_type: str) -> bool:
 def _is_datetime_type(data_type: str) -> bool:
     normalized = data_type.upper()
     return "DATE" in normalized or "TIME" in normalized
+
+
+def _text_record_from_row(row: tuple[Any, ...], tags_by_record: dict[str, list[str]]) -> TextRecord:
+    record_id = str(row[0])
+    custom_fields = json.loads(str(row[8] or "{}"))
+    if not isinstance(custom_fields, dict):
+        custom_fields = {}
+    return TextRecord(
+        id=record_id,
+        content=str(row[1]),
+        primary_category_id=str(row[2]) if row[2] is not None else None,
+        source=str(row[3]) if row[3] is not None else None,
+        location=str(row[4]) if row[4] is not None else None,
+        speaker=str(row[5]) if row[5] is not None else None,
+        record_time=_datetime_or_none(row[6]),
+        note=str(row[7] or ""),
+        custom_fields=custom_fields,
+        created_at=_datetime_or_none(row[9]) or datetime.min,
+        updated_at=_datetime_or_none(row[10]) or datetime.min,
+        schema_version=int(row[11]),
+        tags=tuple(tags_by_record.get(record_id, ())),
+    )
+
+
+def _category_from_row(row: tuple[Any, ...]) -> Category:
+    return Category(
+        id=str(row[0]),
+        name=str(row[1]),
+        description=str(row[2]),
+        color=str(row[3]),
+        created_at=_datetime_or_none(row[4]) or datetime.min,
+        updated_at=_datetime_or_none(row[5]) or datetime.min,
+        schema_version=int(row[6]),
+    )
+
+
+def _datetime_or_none(value: object) -> datetime | None:
+    return value if isinstance(value, datetime) else None

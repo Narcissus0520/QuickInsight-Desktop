@@ -14,4 +14,5 @@
 - Added the first M2 profiling slice: DuckDB-backed column statistics, deterministic semantic type inference, dataset/profile warnings, and tests.
 - Added tabular quality checks for duplicate rows, missing values, constants, mixed-type hints, datetime ranges, IQR outlier candidates, parse-failure status, quality findings, and a background GUI overview page.
 - Added one-click tabular analysis findings for time trends, numeric correlations, and category group differences, with reproducible DuckDB evidence and no causation claims.
-- Packaging, charting, transforms, text workflow, and project persistence remain future milestones.
+- Added text corpus entry/import preview, TXT/Markdown/JSONL splitting, category/tag/source defaults, and DuckDB persistence for text records, categories, and tags.
+- Packaging, charting, transforms, text profiling/labeling workspace, and project persistence remain future milestones.

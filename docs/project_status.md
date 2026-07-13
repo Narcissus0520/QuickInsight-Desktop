@@ -26,10 +26,12 @@ Date: 2026-07-13
 - Added tabular quality checks for duplicate rows, missing values, constants, mixed-type hints, datetime ranges, IQR outlier candidates, and strict-import parse-failure status.
 - Added quality-focused `AnalysisFinding` output with reproducible evidence and a GUI overview page that profiles imported datasets in a background job.
 - Added one-click tabular analysis findings for time trends, numeric correlations, and category group differences; every finding records DuckDB evidence and explicitly avoids causation claims.
+- Added text corpus entry/import preview, TXT/Markdown/JSONL splitting, category/tag/source defaults, and DuckDB persistence for `TextRecord`, `Category`, and tag data.
 
 ## Remaining Work
 
-- Begin text entry/import/splitting and category/tag persistence.
+- Add text corpus profiling and quality checks.
+- Build the virtualized text labeling workspace.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
@@ -37,7 +39,7 @@ Date: 2026-07-13
 - Full packaging is intentionally deferred to M6.
 - Charting, transforms, and project persistence are not implemented yet.
 - Profile UI currently shows quality and one-click analysis findings only; chart recommendations and analysis intent flows are still future milestones.
-- Text corpus workflows are not implemented yet.
+- Text corpus data can be entered/imported and persisted, but text profiling and the virtualized labeling workspace are not implemented yet.
 
 ## Latest Test And Build Results
 
@@ -77,7 +79,9 @@ Date: 2026-07-13
 - M2 tabular quality/profile UI slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M2 one-click tabular analysis slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 36 source files, pytest passed 40 tests on Python 3.13.14 / PySide6 6.11.1.
 - M2 one-click tabular analysis slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M2 text corpus import/persistence slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 38 source files, pytest passed 47 tests on Python 3.13.14 / PySide6 6.11.1.
+- M2 text corpus import/persistence slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Continue M2 with text entry/import/splitting and category/tag persistence.
+Commit the text corpus import/persistence slice locally, retry pending GitHub pushes, then continue M2 with text corpus profiling and quality checks.

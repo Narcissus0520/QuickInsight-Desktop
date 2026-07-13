@@ -34,7 +34,8 @@ M2 is active.
 - [x] Tabular quality checks, duplicate detection, parse-failure reporting, and profile UI integration.
 - [x] Quality-focused structured findings with reproducible evidence.
 - [x] One-click analysis findings for trends, correlations, and group differences.
-- [ ] Text entry/import/splitting and category/tag persistence.
+- [x] Text entry/import/splitting and category/tag persistence.
+- [ ] Text corpus profiling and quality checks.
 - [ ] Virtualized text labeling workspace.
 
 ## M3 - Explainable Chart Recommendation

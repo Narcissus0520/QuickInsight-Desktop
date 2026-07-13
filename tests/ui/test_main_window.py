@@ -6,10 +6,11 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QLabel, QListWidget, QPushButton
 
 from quick_insight.application.importing import TabularImportService
+from quick_insight.application.text_corpus import TextCorpusService
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
-from quick_insight.ui.dialogs import TabularImportDialog
+from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.main_window import MainWindow
 
 
@@ -111,6 +112,44 @@ def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # t
     qtbot.waitUntil(lambda: dialog.import_result is not None, timeout=3000)
 
     assert dialog.import_result.handle.row_count == 1
+
+
+def test_text_corpus_dialog_saves_pasted_records(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TextCorpusService(workspace)
+    dialog = TextCorpusDialog(service=service)
+    qtbot.addWidget(dialog)
+
+    dialog._content_edit.setPlainText("第一条\n第二条")
+    dialog._category_edit.setText("体验")
+    dialog._tags_edit.setText("安装,新手")
+    dialog._source_edit.setText("访谈")
+    dialog.preview()
+    dialog._confirm()
+    qtbot.waitUntil(lambda: dialog.import_result is not None, timeout=3000)
+
+    assert dialog.import_result.handle.row_count == 2
+    stored = workspace.list_text_records(dialog.import_result.handle.cache_key or "")
+    assert stored[0].tags == ("安装", "新手")
+
+
+def test_main_window_shows_text_corpus_result(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TextCorpusService(workspace)
+    result = service.import_preview(
+        service.preview_text(
+            "第一条\n第二条",
+            display_name="文本语料",
+        )
+    )
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+
+    window._show_text_corpus_result(result)
+
+    assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：2"
+    assert window.findChild(QLabel, "queryTimeLabel").text() == "查询：文本语料已保存"
 
 
 def test_import_dialog_shows_bad_csv_encoding_error(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

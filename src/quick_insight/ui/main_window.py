@@ -31,11 +31,12 @@ from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
 from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
 from quick_insight.application.profiling import TabularProfiler
+from quick_insight.application.text_corpus import TextCorpusImportResult, TextCorpusService
 from quick_insight.domain.models import ColumnProfile, DatasetProfile
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
-from quick_insight.ui.dialogs import TabularImportDialog
+from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.jobs import QtJobRunner
 from quick_insight.ui.models import DuckDbTableModel
 from quick_insight.ui.pages import WelcomePage
@@ -61,6 +62,7 @@ class MainWindow(QMainWindow):
         self._paths = paths or AppPaths.default().ensure()
         self._workspace = WorkspaceDatabase(self._paths.cache_dir / "workspace.duckdb")
         self._import_service = TabularImportService(self._workspace)
+        self._text_corpus_service = TextCorpusService(self._workspace)
 
         self._stack = QStackedWidget()
         self._error_label = QLabel("无错误")
@@ -187,7 +189,9 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._build_overview_page())
         self._stack.addWidget(self._placeholder_page("推荐", "M3 将提供可解释图表推荐。"))
         self._stack.addWidget(self._placeholder_page("图表", "M4 将提供本地 Plotly 图表工作区。"))
-        self._stack.addWidget(self._placeholder_page("文本标注", "M2 将提供虚拟化文本标注工作区。"))
+        self._stack.addWidget(
+            self._placeholder_page("文本标注", "文本语料可保存；虚拟化标注工作区将在下一步接入。")
+        )
 
         layout.addWidget(self._stack)
         return panel
@@ -300,8 +304,10 @@ class MainWindow(QMainWindow):
         if key == "import_tabular":
             self._open_tabular_import()
             return
+        if key == "create_text_corpus":
+            self._open_text_corpus_dialog()
+            return
         messages = {
-            "create_text_corpus": "文本语句录入将在 M2 接入，目前仅提供启动外壳。",
             "open_recent": "项目持久化将在 M5 接入，目前没有最近项目。",
             "open_sample": "示例导入将在 M1/M2 接入；样例文件已放在 samples 目录。",
         }
@@ -339,6 +345,16 @@ class MainWindow(QMainWindow):
             return
         self._show_import_result(dialog.import_result)
 
+    def _open_text_corpus_dialog(self, path: Path | None = None) -> None:
+        dialog = TextCorpusDialog(
+            service=self._text_corpus_service,
+            initial_path=path,
+            parent=self,
+        )
+        if dialog.exec() != TextCorpusDialog.DialogCode.Accepted or dialog.import_result is None:
+            return
+        self._show_text_corpus_result(dialog.import_result)
+
     def _show_import_result(self, result: TabularImportResult) -> None:
         handle = result.handle
         self._dataset_list.addItem(handle.display_name)
@@ -361,6 +377,17 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(1)
         self.statusBar().showMessage("导入完成", 5000)
         self._start_profile_job(result)
+
+    def _show_text_corpus_result(self, result: TextCorpusImportResult) -> None:
+        handle = result.handle
+        self._dataset_list.addItem(handle.display_name)
+        self._row_count_label.setText(f"行/记录：{handle.row_count}")
+        self._query_time_label.setText("查询：文本语料已保存")
+        self._approximation_label.setText("近似：无")
+        self._jobs_label.setText("后台任务：空闲")
+        self._error_label.setText("无错误")
+        self._stack.setCurrentIndex(5)
+        self.statusBar().showMessage("文本语料已保存", 5000)
 
     def _on_destroyed(self) -> None:
         self._is_disposed = True
