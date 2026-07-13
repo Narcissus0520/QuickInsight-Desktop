@@ -80,10 +80,10 @@ M6 is active.
   - [x] Safe stale app-temp cleanup on startup plus explicit derived normalized-cache cleanup policy.
   - [x] Execute representative 100k, 1m, and 5m row benchmark pass and record results.
   - [x] Tune memory/cache behavior based on benchmark findings.
-- [ ] Accessibility and DPI pass.
+- [x] Accessibility and DPI pass.
   - [x] Primary accessibility metadata for toolbar, welcome, workspace, transform, text-labeling, status, and chart-export controls.
   - [x] DPI-friendly minimum hit-target baseline for primary actions and workflow buttons.
   - [x] Automated UI smoke coverage for accessible names/descriptions and hit-target minimums.
-  - [ ] Manual or automated visual sweep at 100%, 125%, 150%, and 200% DPI.
+  - [x] Automated visual sweep at 100%, 125%, 150%, and 200% DPI.
 - [ ] Security review.
 - [ ] Packaged smoke tests, installer, portable ZIP, license notices, and release docs.

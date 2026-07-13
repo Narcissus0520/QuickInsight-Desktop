@@ -559,10 +559,23 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._build_overview_page())
         self._stack.addWidget(self._build_recommendations_page())
         self._stack.addWidget(self._chart_view)
-        self._stack.addWidget(self._build_text_labeling_page())
+        self._stack.addWidget(
+            self._scrollable_panel(self._build_text_labeling_page(), "textLabelingScrollArea")
+        )
 
         layout.addWidget(self._stack)
         return panel
+
+    def _scrollable_panel(self, content: QWidget, object_name: str) -> QScrollArea:
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName(object_name)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        scroll_area.setMinimumSize(0, 0)
+        content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        scroll_area.setWidget(content)
+        return scroll_area
 
     def _build_right_panel(self) -> QWidget:
         panel = QFrame()
@@ -576,7 +589,10 @@ class MainWindow(QMainWindow):
         title.setObjectName("sectionTitle")
         tabs = QTabWidget()
         tabs.setObjectName("rightTabs")
-        tabs.addTab(self._build_transform_panel(), "转换")
+        tabs.addTab(
+            self._scrollable_panel(self._build_transform_panel(), "transformScrollArea"),
+            "转换",
+        )
         for title_text, body in (
             ("字段", "字段映射和语义类型将在画像阶段接入。"),
             ("样式", "图表样式将在图表工作区接入。"),

@@ -31,6 +31,7 @@ dev = [
 [project.scripts]
 quick-insight = "quick_insight.main:main"
 quick-insight-benchmark = "quick_insight.benchmarks:main"
+quick-insight-dpi-sweep = "quick_insight.dpi_sweep:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

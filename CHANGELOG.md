@@ -34,3 +34,4 @@
 - Added the first M6 performance hardening slice: deterministic tabular benchmark generation/reporting, a `scripts/benchmark.ps1` runner, startup stale-temp cleanup, explicit normalized-cache cleanup policy, and tests for benchmark evidence plus cleanup safety.
 - Completed the first M6 benchmark pass for 100k, 1m, and 5m generated rows and fixed CSV preview sample reading so large-file preview uses bounded memory.
 - Added the first M6 accessibility/DPI baseline: accessible names/descriptions/tooltips for primary controls, minimum hit-target sizes for key actions, and UI smoke tests for the baseline.
+- Added an automated M6 DPI visual sweep with `scripts/dpi_sweep.ps1`, per-scale screenshots, geometry/text-fit checks, and reports for 100%, 125%, 150%, and 200% scaling; adjusted high-content workspace pages to remain usable at 1366 x 768.
