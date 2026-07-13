@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import polars as pl
 
 from quick_insight.infrastructure.csv_import import CsvImportOptions
 from quick_insight.infrastructure.sql import quote_identifier
@@ -39,6 +40,25 @@ class WorkspaceDatabase:
                 """,
                 [str(source), options.delimiter, options.has_header],
             )
+
+    def import_parquet(self, source: Path, table_name: str) -> None:
+        table_sql = quote_identifier(table_name)
+        with self._connect() as connection:
+            connection.execute(f"DROP TABLE IF EXISTS {table_sql}")
+            connection.execute(
+                f"CREATE TABLE {table_sql} AS SELECT * FROM read_parquet(?)",
+                [str(source)],
+            )
+
+    def import_polars_dataframe(self, frame: pl.DataFrame, table_name: str) -> None:
+        table_sql = quote_identifier(table_name)
+        with self._connect() as connection:
+            connection.register("_quick_insight_import_frame", frame.to_arrow())
+            connection.execute(f"DROP TABLE IF EXISTS {table_sql}")
+            connection.execute(
+                f"CREATE TABLE {table_sql} AS SELECT * FROM _quick_insight_import_frame"
+            )
+            connection.unregister("_quick_insight_import_frame")
 
     def row_count(self, table_name: str) -> int:
         with self._connect() as connection:

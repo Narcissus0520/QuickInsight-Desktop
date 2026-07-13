@@ -6,4 +6,5 @@
 - Added PySide6 bootstrap shell, theme tokens, welcome page, workspace frame, app paths/settings/logging, error model, job abstraction, deterministic samples, scripts, tests, and baseline documentation.
 - Fixed the development setup script for Windows PowerShell argument quoting and validated M0 on CPython 3.13.14 x64.
 - Added the first M1 tabular import slice: CSV/TSV detection, preview confirmation dialog, DuckDB workspace import, and paged `QTableView` preview.
+- Added Excel/Parquet preview and confirmed-import paths using Polars, DuckDB, and `fastexcel` for the Calamine Excel engine.
 - Packaging, import, analysis, charting, transforms, and project persistence remain future milestones.

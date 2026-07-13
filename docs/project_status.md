@@ -17,10 +17,10 @@ Date: 2026-07-13
 - Installed CPython 3.13.14 x64 with `winget` and completed M0 gates on the target runtime.
 - Committed and pushed M0 as `a8b3315 chore: bootstrap M0 foundation`.
 - Added the first M1 slice: CSV/TSV preview detection, confirmation dialog, DuckDB import, paged `QAbstractTableModel`, and main-window preview.
+- Added Excel/Parquet preview paths using Polars and the Calamine/fastexcel Excel engine; confirmed imports write to the same DuckDB preview pipeline.
 
 ## Remaining Work
 
-- Complete Excel and Parquet preview/import paths.
 - Add normalized Parquet workspace cache and source invalidation.
 - Move import/query execution onto cancellable background jobs.
 - Expand import error-path UI coverage.
@@ -44,7 +44,11 @@ Date: 2026-07-13
 - `git push -u origin main`: exit 0; pushed `main` to `origin/main`.
 - M1 slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 33 source files, pytest passed 19 tests on Python 3.13.14 / PySide6 6.11.1.
 - M1 slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- `git commit -m "feat: add csv import preview slice"`: exit 0; created commit `50a68b4`.
+- `git push`: exit 0; pushed `50a68b4` to `origin/main`.
+- Excel/Parquet slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 34 source files, pytest passed 23 tests on Python 3.13.14 / PySide6 6.11.1.
+- Excel/Parquet slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Commit the completed M1 CSV/TSV preview slice, then continue M1 with background jobs and Excel/Parquet preview support.
+Commit the completed Excel/Parquet preview slice, then continue M1 with normalized Parquet cache/source invalidation and cancellable background import/query jobs.

@@ -19,7 +19,11 @@ from PySide6.QtWidgets import (
 )
 
 from quick_insight.application.errors import UserFacingError
-from quick_insight.application.importing import TabularImportResult, TabularImportService
+from quick_insight.application.importing import (
+    TabularImportResult,
+    TabularImportService,
+    TabularPreview,
+)
 from quick_insight.infrastructure.csv_import import DELIMITER_BY_NAME, CsvPreview
 from quick_insight.ui.models import PreviewTableModel
 
@@ -37,7 +41,7 @@ class TabularImportDialog(QDialog):
         self.setWindowTitle("导入表格数据")
         self.resize(900, 620)
         self._service = service
-        self._preview: CsvPreview | None = None
+        self._preview: TabularPreview | None = None
         self.import_result: TabularImportResult | None = None
 
         self._path_edit = QLineEdit()
@@ -111,23 +115,23 @@ class TabularImportDialog(QDialog):
             )
             return
         try:
-            preview = self._service.preview_csv(
-                Path(path_text),
-                encoding=self._encoding_combo.currentData(),
-                delimiter=self._delimiter_combo.currentData(),
-                has_header=self._header_check.isChecked(),
-            )
+            path = Path(path_text)
+            preview: TabularPreview
+            if path.suffix.lower() in {".csv", ".tsv", ".txt"}:
+                preview = self._service.preview_csv(
+                    path,
+                    encoding=self._encoding_combo.currentData(),
+                    delimiter=self._delimiter_combo.currentData(),
+                    has_header=self._header_check.isChecked(),
+                )
+            else:
+                preview = self._service.preview_file(path)
         except UserFacingError as exc:
             self._show_error(exc)
             return
         self._preview = preview
         self._preview_table.setModel(PreviewTableModel(preview.columns, preview.rows))
-        warning_text = "；".join(preview.warnings)
-        suffix = f" 警告：{warning_text}" if warning_text else ""
-        self._status_label.setText(
-            f"已预览 {preview.total_preview_rows} 行，编码 {preview.options.encoding}，"
-            f"分隔符 {preview.options.delimiter!r}。{suffix}"
-        )
+        self._status_label.setText(_preview_status(preview))
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
 
     def _browse(self) -> None:
@@ -135,7 +139,7 @@ class TabularImportDialog(QDialog):
             self,
             "选择表格数据",
             "",
-            "Delimited files (*.csv *.tsv *.txt);;All files (*.*)",
+            "Tabular files (*.csv *.tsv *.xlsx *.xls *.xlsb *.parquet);;All files (*.*)",
         )
         if path:
             self._path_edit.setText(path)
@@ -147,7 +151,7 @@ class TabularImportDialog(QDialog):
         if self._preview is None:
             return
         try:
-            self.import_result = self._service.import_csv(self._preview)
+            self.import_result = self._service.import_preview(self._preview)
         except UserFacingError as exc:
             self._show_error(exc)
             return
@@ -156,3 +160,18 @@ class TabularImportDialog(QDialog):
     def _show_error(self, error: UserFacingError) -> None:
         self._status_label.setText(error.display_text())
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+
+
+def _preview_status(preview: TabularPreview) -> str:
+    warning_text = "；".join(preview.warnings)
+    suffix = f" 警告：{warning_text}" if warning_text else ""
+    if isinstance(preview, CsvPreview):
+        return (
+            f"已预览 {preview.total_preview_rows} 行，编码 {preview.options.encoding}，"
+            f"分隔符 {preview.options.delimiter!r}。{suffix}"
+        )
+    format_name = "Excel" if preview.file_format == "excel" else "Parquet"
+    sheet_text = ""
+    if preview.file_format == "excel":
+        sheet_text = f"，工作表 {preview.options.get('sheet_name')}"
+    return f"已预览 {format_name} 文件 {preview.total_preview_rows} 行{sheet_text}。{suffix}"

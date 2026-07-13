@@ -4,6 +4,7 @@
 ast-serialize==0.6.0
 colorama==0.4.6
 duckdb==1.5.4
+fastexcel==0.20.2
 iniconfig==2.3.0
 librt==0.13.0
 mypy==2.2.0
