@@ -189,6 +189,12 @@ def test_text_profile_recommends_text_specific_charts() -> None:
         "text_category_keyword_heatmap",
         "text_tag_cooccurrence_heatmap",
     }.issubset(chart_types)
+    keyword = next(item for item in recommendations if item.spec.chart_type == "text_keyword_bar")
+    category_keyword = next(
+        item for item in recommendations if item.spec.chart_type == "text_category_keyword_heatmap"
+    )
+    assert keyword.spec.aggregation["keywords"] == ("告警", "安装")
+    assert category_keyword.spec.aggregation["keywords"] == ("安装",)
     assert all(item.score <= 100 for item in recommendations)
 
 

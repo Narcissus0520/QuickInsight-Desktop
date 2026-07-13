@@ -48,15 +48,17 @@ M3 is accepted.
 
 ## M4 - Chart Workspace And Export
 
-M4 is active.
+M4 is accepted.
 
 - [x] Local Plotly/WebEngine renderer.
 - [x] Downsampling/binning/top-N strategies.
 - [x] HTML/SVG/PNG/JSON export.
 - [x] External network blocking for chart views.
-- [ ] Real data preparation for box plots, correlation heatmaps, and text-corpus chart specs.
+- [x] Real data preparation for box plots, correlation heatmaps, and text-corpus chart specs.
 
 ## M5 - Transforms And Project Persistence
+
+M5 is active.
 
 - [ ] No-code transforms and aggregation.
 - [ ] `.qiproject` save/reopen with source relocation.

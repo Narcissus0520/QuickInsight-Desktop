@@ -23,4 +23,5 @@
 - Added DuckDB-backed tabular chart data preparation for Top N plus Other category aggregation, time-window downsampling, scatter uniform sampling, histogram bins, 2D density bins, and categorical cross-tab aggregation.
 - Added chart export for self-contained HTML, figure/config JSON, and SVG/PNG through local Plotly.js `toImage`, including WebGL SVG vector warnings.
 - Added stronger chart request blocking: only local chart schemes are allowed, file/network/script schemes are rejected, WebEngine local-content access is hardened, and blocked requests are surfaced in the chart view.
-- Remaining chart-family data preparation, transforms, advanced category governance, and project persistence remain future milestones.
+- Completed M4 chart data preparation for box plots, correlation heatmaps, and current text-corpus chart specs, including text category/status/source/keyword/category-keyword/tag-cooccurrence charts.
+- Transforms, advanced category governance, and project persistence remain future milestones.

@@ -3,9 +3,9 @@
 P0 chart recommendation is deterministic, explainable, and testable. M3 implemented
 rule scoring in `quick_insight.charts.recommendation` and workspace recommendation
 cards in the Qt shell. The first M4 slice adds an offline Plotly/WebEngine renderer
-preview. The current M4 data-preparation slice connects selected tabular
-recommendations to DuckDB-backed prepared chart datasets; chart export now supports
-self-contained HTML, figure/config JSON, SVG, and PNG.
+preview. M4 connects tabular and text recommendations to DuckDB-backed prepared
+chart datasets; chart export supports self-contained HTML, figure/config JSON,
+SVG, and PNG.
 
 Scoring uses the repository contract's 100-point breakdown:
 
@@ -35,8 +35,12 @@ opens the chart workspace. For supported tabular recommendations it prepares rea
 DuckDB aggregates or samples before rendering through Plotly Python and local
 Plotly.js. Supported strategies currently include Top N plus Other category
 aggregation, time-window mean downsampling, deterministic scatter sampling,
-histogram bins, 2D density bins, and categorical cross-tab aggregation. The edit
-action remains guarded until editable chart specifications are implemented.
+histogram bins, 2D density bins, categorical cross-tab aggregation, grouped box
+quantiles, and Pearson correlation matrices. Text recommendations prepare
+category counts, classification status, source-category heatmaps, keyword bars,
+category-keyword heatmaps, and tag co-occurrence heatmaps from persisted local
+text tables. The edit action remains guarded until editable chart specifications
+are implemented.
 
 Chart export writes self-contained interactive HTML and versioned JSON directly
 from the prepared `PlotlyChartDocument`. SVG and PNG export use local Plotly.js

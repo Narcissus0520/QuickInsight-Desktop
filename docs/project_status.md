@@ -5,8 +5,8 @@ Date: 2026-07-13
 ## Current Version And Milestone
 
 - Version: `0.0.0`
-- Milestone: M4 chart workspace and export is active
-- Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted; M3 explainable chart recommendation accepted.
+- Milestone: M5 transforms and project persistence is active
+- Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted; M3 explainable chart recommendation accepted; M4 chart workspace and export accepted.
 
 ## Completed Work
 
@@ -35,16 +35,19 @@ Date: 2026-07-13
 - Added DuckDB-backed tabular chart preparation with `PreparedChartDataset` metadata, Top N plus Other category aggregation, time-window mean downsampling, deterministic scatter sampling, histogram bins, 2D density bins, categorical cross-tabs, and background chart preparation from recommendation cards.
 - Added chart export for self-contained HTML, figure/config JSON, SVG, and PNG. HTML/JSON use deterministic file serialization, while SVG/PNG use local Plotly.js `toImage` in the chart WebEngine view and warn when WebGL traces cannot guarantee fully vector SVG output.
 - Added stronger runtime validation for chart resource blocking: a shared chart request policy allows only local chart schemes, rejects external/file/script schemes, hardens WebEngine local-content settings, records blocked requests in the chart view, and adds unit/UI coverage.
+- Completed M4 real chart data preparation for box plots, correlation heatmaps, and current text-corpus chart specs. Box plots use DuckDB grouped quantiles, correlation heatmaps use DuckDB Pearson matrices, and text charts use persisted `text_records`, `text_categories`, and `text_record_tags` tables instead of renderer previews.
 
 ## Remaining Work
 
-- Extend real data preparation to remaining chart families such as box plots, correlation heatmaps, and text-corpus chart specs.
+- Begin M5 no-code transforms and aggregation.
+- Add `.qiproject` save/reopen with source relocation.
+- Add processed data and text export.
+- Add safe category rename/merge/delete audit for text labels.
 - Continue committing once per completed milestone or coherent stage.
 
 ## Known Issues
 
 - Full packaging is intentionally deferred to M6.
-- Real chart preparation currently covers tabular line/area, bar, histogram, scatter, density heatmap, donut, cross-tab heatmap, and stacked bar. Box plots, correlation heatmaps, and text-corpus chart specs still use guarded/future paths.
 - SVG/PNG export requires a loaded desktop `QWebEngineView`; offscreen automated tests cover HTML/JSON export and the `toImage` bridge script rather than executing browser image capture.
 - Transforms and project persistence are not implemented yet.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
@@ -109,7 +112,9 @@ Date: 2026-07-13
 - M4 chart export slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M4 chart request blocking slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 46 source files, pytest passed 74 tests on Python 3.13.14 / PySide6 6.11.1.
 - M4 chart request blocking slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M4 real chart preparation completion slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 46 source files, pytest passed 76 tests on Python 3.13.14 / PySide6 6.11.1.
+- M4 real chart preparation completion slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Extend real data preparation to box plots, correlation heatmaps, and text-corpus chart specs.
+Begin M5 no-code transforms and aggregation.

@@ -35,7 +35,10 @@ from PySide6.QtWidgets import (
 
 from quick_insight import APP_NAME_ZH
 from quick_insight.application.analysis import TabularAnalysisService
-from quick_insight.application.chart_preparation import TabularChartPreparationService
+from quick_insight.application.chart_preparation import (
+    TabularChartPreparationService,
+    TextChartPreparationService,
+)
 from quick_insight.application.errors import UserFacingError
 from quick_insight.application.importing import TabularImportResult, TabularImportService
 from quick_insight.application.jobs import JobContext, JobOutcome, JobProgress, JobState
@@ -559,6 +562,7 @@ class MainWindow(QMainWindow):
     def _show_import_result(self, result: TabularImportResult) -> None:
         handle = result.handle
         self._current_tabular_table_name = result.table_name
+        self._current_text_corpus_id = None
         self._dataset_list.addItem(handle.display_name)
         self._preview_table.setModel(
             DuckDbTableModel(
@@ -965,6 +969,10 @@ class MainWindow(QMainWindow):
         if table_name is not None:
             self._start_chart_preparation_job(table_name, recommendation)
             return
+        corpus_id = self._current_text_corpus_id
+        if corpus_id is not None:
+            self._start_text_chart_preparation_job(corpus_id, recommendation)
+            return
         document = build_preview_document(recommendation)
         self._render_chart_document(document)
         self._jobs_label.setText("后台任务：本地 Plotly 渲染器预览已载入")
@@ -999,6 +1007,34 @@ class MainWindow(QMainWindow):
             "tabular_chart_preparation",
             lambda context: TabularChartPreparationService(self._workspace).prepare(
                 table_name,
+                recommendation,
+                context=context,
+            ),
+        )
+        self._running_chart_job = job
+        job.signals.progress.connect(self._on_chart_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_chart_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _start_text_chart_preparation_job(
+        self,
+        corpus_id: str,
+        recommendation: ChartRecommendation,
+    ) -> None:
+        if self._running_chart_job is not None:
+            self._running_chart_job.cancel()
+        self._chart_generation += 1
+        generation = self._chart_generation
+        self._jobs_label.setText("后台任务：正在准备文本图表数据")
+        job = QtJobRunner(
+            "text_chart_preparation",
+            lambda context: TextChartPreparationService(self._workspace).prepare(
+                corpus_id,
                 recommendation,
                 context=context,
             ),

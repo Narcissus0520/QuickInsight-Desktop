@@ -375,9 +375,16 @@ def _prepared_figure(spec: ChartSpec, prepared: PreparedChartDataset) -> go.Figu
         figure.update_yaxes(title_text=mappings.get("y", "y"))
         return figure
 
-    if chart_type == "bar":
-        x_values = _column_values(prepared, "category")
-        y_values = _column_values(prepared, "value")
+    if chart_type in {
+        "bar",
+        "text_category_bar",
+        "text_classification_status_bar",
+        "text_keyword_bar",
+    }:
+        x_column = "category" if "category" in prepared.columns else "x"
+        y_column = "value" if "value" in prepared.columns else "source_count"
+        x_values = _column_values(prepared, x_column)
+        y_values = _column_values(prepared, y_column)
         figure = go.Figure(
             data=[
                 go.Bar(
@@ -392,6 +399,9 @@ def _prepared_figure(spec: ChartSpec, prepared: PreparedChartDataset) -> go.Figu
         figure.update_xaxes(title_text=mappings.get("x", mappings.get("category", "category")))
         figure.update_yaxes(title_text=mappings.get("y", mappings.get("value", "value")))
         return figure
+
+    if chart_type == "box":
+        return _box_quantile_figure(prepared, mappings)
 
     if chart_type == "donut":
         return go.Figure(
@@ -448,6 +458,18 @@ def _prepared_figure(spec: ChartSpec, prepared: PreparedChartDataset) -> go.Figu
     }:
         return _xyz_heatmap(prepared, mappings)
 
+    if chart_type == "correlation_heatmap":
+        return _xyz_heatmap(
+            prepared,
+            mappings,
+            value_column="value",
+            colorbar_title="correlation",
+            colorscale="RdBu",
+            zmin=-1.0,
+            zmax=1.0,
+            missing_value=None,
+        )
+
     if chart_type == "stacked_bar":
         return _stacked_bar(prepared, mappings)
 
@@ -479,29 +501,81 @@ def _optional_column_values(prepared: PreparedChartDataset, column: str) -> list
     return _column_values(prepared, column)
 
 
-def _xyz_heatmap(prepared: PreparedChartDataset, mappings: dict[str, str]) -> go.Figure:
-    x_values = _ordered_unique(_column_values(prepared, "x"))
-    y_values = _ordered_unique(_column_values(prepared, "y"))
-    counts: dict[tuple[Any, Any], float] = {}
-    x_index = prepared.columns.index("x")
-    y_index = prepared.columns.index("y")
+def _box_quantile_figure(
+    prepared: PreparedChartDataset,
+    mappings: dict[str, str],
+) -> go.Figure:
+    figure = go.Figure()
+    category_index = prepared.columns.index("category")
+    lower_index = prepared.columns.index("lower_fence")
+    q1_index = prepared.columns.index("q1")
+    median_index = prepared.columns.index("median")
+    q3_index = prepared.columns.index("q3")
+    upper_index = prepared.columns.index("upper_fence")
     count_index = prepared.columns.index("source_count")
     for row in prepared.rows:
-        counts[(_plotly_value(row[x_index]), _plotly_value(row[y_index]))] = float(
-            row[count_index] or 0
+        figure.add_trace(
+            go.Box(
+                name=str(row[category_index]),
+                q1=[_plotly_value(row[q1_index])],
+                median=[_plotly_value(row[median_index])],
+                q3=[_plotly_value(row[q3_index])],
+                lowerfence=[_plotly_value(row[lower_index])],
+                upperfence=[_plotly_value(row[upper_index])],
+                boxpoints=False,
+                customdata=[[row[count_index]]],
+                hovertemplate=(
+                    "%{fullData.name}<br>"
+                    "Q1=%{q1}<br>Median=%{median}<br>Q3=%{q3}<br>"
+                    "rows=%{customdata[0]}<extra></extra>"
+                ),
+            )
+        )
+    figure.update_xaxes(title_text=mappings.get("x", "category"))
+    figure.update_yaxes(title_text=mappings.get("y", "value"))
+    return figure
+
+
+def _xyz_heatmap(
+    prepared: PreparedChartDataset,
+    mappings: dict[str, str],
+    *,
+    value_column: str = "source_count",
+    colorbar_title: str = "count",
+    colorscale: str = "Blues",
+    zmin: float | None = None,
+    zmax: float | None = None,
+    missing_value: float | None = 0.0,
+) -> go.Figure:
+    x_values = _ordered_unique(_column_values(prepared, "x"))
+    y_values = _ordered_unique(_column_values(prepared, "y"))
+    counts: dict[tuple[Any, Any], float | None] = {}
+    x_index = prepared.columns.index("x")
+    y_index = prepared.columns.index("y")
+    value_index = prepared.columns.index(value_column)
+    for row in prepared.rows:
+        raw_value = row[value_index]
+        counts[(_plotly_value(row[x_index]), _plotly_value(row[y_index]))] = (
+            None if raw_value is None else float(raw_value)
         )
     z_values = [
-        [counts.get((x_value, y_value), 0.0) for x_value in x_values]
+        [counts.get((x_value, y_value), missing_value) for x_value in x_values]
         for y_value in y_values
     ]
+    heatmap_kwargs: dict[str, Any] = {}
+    if zmin is not None:
+        heatmap_kwargs["zmin"] = zmin
+    if zmax is not None:
+        heatmap_kwargs["zmax"] = zmax
     figure = go.Figure(
         data=[
             go.Heatmap(
                 x=x_values,
                 y=y_values,
                 z=z_values,
-                colorscale="Blues",
-                colorbar={"title": "count"},
+                colorscale=colorscale,
+                colorbar={"title": colorbar_title},
+                **heatmap_kwargs,
             )
         ]
     )

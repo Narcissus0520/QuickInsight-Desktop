@@ -374,6 +374,8 @@ class ChartRecommendationEngine:
         keyword_matches = _summary_entries(summary, "keyword_matches")
         per_category_keywords = _summary_entries(summary, "per_category_keyword_counts")
         tag_co_occurrence = _summary_entries(summary, "tag_co_occurrence")
+        keyword_values = _keywords_from_keyword_matches(keyword_matches)
+        category_keyword_values = _keywords_from_category_keyword_entries(per_category_keywords)
         categorized_count = _summary_int(summary, "categorized_count")
         uncategorized_count = _summary_int(summary, "uncategorized_count")
 
@@ -452,7 +454,10 @@ class ChartRecommendationEngine:
                     profile=profile,
                     chart_type="text_keyword_bar",
                     mappings={"x": "keyword", "y": "matching_record_count"},
-                    aggregation={"source": "profile.keyword_matches"},
+                    aggregation={
+                        "source": "profile.keyword_matches",
+                        "keywords": keyword_values,
+                    },
                     field_score=36,
                     intent_score=_intent_score(intent, {AnalysisIntent.COMPARISON}, auto=13),
                     cardinality_score=_text_count_cardinality_score(len(keyword_matches)),
@@ -469,7 +474,10 @@ class ChartRecommendationEngine:
                     profile=profile,
                     chart_type="text_category_keyword_heatmap",
                     mappings={"x": "keyword", "y": "primary_category", "value": "record_count"},
-                    aggregation={"source": "profile.per_category_keyword_counts"},
+                    aggregation={
+                        "source": "profile.per_category_keyword_counts",
+                        "keywords": category_keyword_values,
+                    },
                     field_score=34,
                     intent_score=_intent_score(
                         intent,
@@ -745,3 +753,31 @@ def _summary_entries(summary: dict[str, Any], key: str) -> tuple[object, ...]:
 def _summary_int(summary: dict[str, Any], key: str) -> int:
     value = summary.get(key)
     return value if isinstance(value, int) else 0
+
+
+def _keywords_from_keyword_matches(entries: tuple[object, ...]) -> tuple[str, ...]:
+    keywords: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        keyword = entry.get("keyword")
+        if isinstance(keyword, str) and keyword.strip():
+            keywords.append(keyword.strip())
+    return tuple(dict.fromkeys(keywords))
+
+
+def _keywords_from_category_keyword_entries(entries: tuple[object, ...]) -> tuple[str, ...]:
+    keywords: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        nested = entry.get("keywords")
+        if not isinstance(nested, tuple | list):
+            continue
+        for keyword_entry in nested:
+            if not isinstance(keyword_entry, dict):
+                continue
+            keyword = keyword_entry.get("keyword")
+            if isinstance(keyword, str) and keyword.strip():
+                keywords.append(keyword.strip())
+    return tuple(dict.fromkeys(keywords))

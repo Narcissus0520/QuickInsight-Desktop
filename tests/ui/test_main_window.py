@@ -310,6 +310,12 @@ def test_main_window_shows_text_corpus_result(qtbot, tmp_path) -> None:  # type:
     )
     assert "文本类别计数图" in card_text
     assert "数据预算：" in card_text
+    first_card = window.findChildren(QFrame, "recommendationCard")[0]
+    first_card.findChild(QPushButton, "recommendationGenerateButton").click()
+    chart_view = window.findChild(PlotlyChartView, "plotlyChartView")
+    qtbot.waitUntil(lambda: "text_category_counts_top_n" in chart_view.last_html, timeout=3000)
+    assert "chart_data_preparation_pending" not in chart_view.last_html
+    assert window._stack.currentIndex() == 4
     qtbot.waitUntil(
         lambda: window._text_label_model is not None
         and window._text_label_model.pending_page_count() == 0,

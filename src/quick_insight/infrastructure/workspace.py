@@ -1295,6 +1295,476 @@ class WorkspaceDatabase:
             approximate=False,
         )
 
+    def chart_box_quantiles_top_n(
+        self,
+        table_name: str,
+        category_column: WorkspaceColumn,
+        numeric_column: WorkspaceColumn,
+        *,
+        limit: int,
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        category_sql = quote_identifier(category_column.name)
+        numeric_sql = quote_identifier(numeric_column.name)
+        with self._connect() as connection:
+            count_row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table_sql}
+                WHERE {category_sql} IS NOT NULL
+                  AND {numeric_sql} IS NOT NULL
+                """
+            ).fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        CAST({category_sql} AS VARCHAR) AS category,
+                        CAST({numeric_sql} AS DOUBLE) AS value
+                    FROM {table_sql}
+                    WHERE {category_sql} IS NOT NULL
+                      AND {numeric_sql} IS NOT NULL
+                ),
+                ranked_categories AS (
+                    SELECT
+                        category,
+                        COUNT(*) AS source_count,
+                        ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, category ASC) AS rank
+                    FROM clean
+                    GROUP BY category
+                ),
+                selected AS (
+                    SELECT clean.category, clean.value
+                    FROM clean
+                    JOIN ranked_categories USING (category)
+                    WHERE rank <= ?
+                )
+                SELECT
+                    category,
+                    MIN(value) AS lower_fence,
+                    QUANTILE_CONT(value, 0.25) AS q1,
+                    MEDIAN(value) AS median,
+                    QUANTILE_CONT(value, 0.75) AS q3,
+                    MAX(value) AS upper_fence,
+                    COUNT(*) AS source_count
+                FROM selected
+                GROUP BY category
+                ORDER BY source_count DESC, category ASC
+                """,
+                [limit],
+            ).fetchall()
+        rendered_source_rows = sum(int(row[6] or 0) for row in rows)
+        return PreparedChartDataset(
+            columns=(
+                "category",
+                "lower_fence",
+                "q1",
+                "median",
+                "q3",
+                "upper_fence",
+                "source_count",
+            ),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="box_quantiles_top_n",
+            parameters={
+                "category_column": category_column.name,
+                "numeric_column": numeric_column.name,
+                "limit": limit,
+                "omitted_rows": max(original_rows - rendered_source_rows, 0),
+            },
+            approximate=rendered_source_rows < original_rows,
+        )
+
+    def chart_correlation_matrix(
+        self,
+        table_name: str,
+        columns: tuple[WorkspaceColumn, ...],
+    ) -> PreparedChartDataset:
+        table_sql = quote_identifier(table_name)
+        column_sql = tuple(quote_identifier(column.name) for column in columns)
+        rows: list[tuple[Any, ...]] = []
+        with self._connect() as connection:
+            count_row = connection.execute(f"SELECT COUNT(*) FROM {table_sql}").fetchone()
+            original_rows = int(count_row[0] or 0) if count_row is not None else 0
+            for left_index, left_column in enumerate(columns):
+                left_sql = column_sql[left_index]
+                for right_index, right_column in enumerate(columns):
+                    right_sql = column_sql[right_index]
+                    if left_index == right_index:
+                        pair_row = connection.execute(
+                            f"""
+                            SELECT COUNT(*)
+                            FROM {table_sql}
+                            WHERE {left_sql} IS NOT NULL
+                            """
+                        ).fetchone()
+                        pair_count = int(pair_row[0] or 0) if pair_row is not None else 0
+                        correlation = 1.0 if pair_count > 0 else None
+                    else:
+                        pair_row = connection.execute(
+                            f"""
+                            SELECT
+                                COUNT(*) AS pair_count,
+                                CORR(
+                                    CAST({left_sql} AS DOUBLE),
+                                    CAST({right_sql} AS DOUBLE)
+                                ) AS correlation
+                            FROM {table_sql}
+                            WHERE {left_sql} IS NOT NULL
+                              AND {right_sql} IS NOT NULL
+                            """
+                        ).fetchone()
+                        pair_count = int(pair_row[0] or 0) if pair_row is not None else 0
+                        correlation = (
+                            float(pair_row[1])
+                            if pair_row is not None and pair_row[1] is not None
+                            else None
+                        )
+                    rows.append((left_column.name, right_column.name, correlation, pair_count))
+        return PreparedChartDataset(
+            columns=("x", "y", "value", "source_count"),
+            rows=tuple(rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="pearson_correlation_matrix",
+            parameters={"fields": tuple(column.name for column in columns)},
+            approximate=False,
+        )
+
+    def chart_text_category_counts(
+        self,
+        corpus_id: str,
+        *,
+        limit: int,
+    ) -> PreparedChartDataset:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            original_rows = _text_corpus_row_count(connection, corpus_id)
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT {_text_category_label_sql()} AS label
+                    FROM text_records AS r
+                    LEFT JOIN text_categories AS c ON r.primary_category_id = c.id
+                    WHERE r.corpus_id = ?
+                ),
+                grouped AS (
+                    SELECT label, COUNT(*) AS source_count
+                    FROM clean
+                    GROUP BY label
+                ),
+                ranked AS (
+                    SELECT
+                        label,
+                        source_count,
+                        ROW_NUMBER() OVER (ORDER BY source_count DESC, label ASC) AS rank
+                    FROM grouped
+                ),
+                aggregated AS (
+                    SELECT
+                        CASE WHEN rank <= ? THEN label ELSE 'Other' END AS label,
+                        SUM(source_count) AS source_count
+                    FROM ranked
+                    GROUP BY 1
+                )
+                SELECT label, source_count
+                FROM aggregated
+                ORDER BY
+                    CASE WHEN label = 'Other' THEN 1 ELSE 0 END ASC,
+                    source_count DESC,
+                    label ASC
+                """,
+                [corpus_id, limit],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("x", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="text_category_counts_top_n",
+            parameters={"corpus_id": corpus_id, "limit": limit, "other_label": "Other"},
+            approximate=False,
+        )
+
+    def chart_text_classification_status(self, corpus_id: str) -> PreparedChartDataset:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            row = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_count,
+                    SUM(CASE WHEN primary_category_id IS NOT NULL THEN 1 ELSE 0 END)
+                        AS categorized_count
+                FROM text_records
+                WHERE corpus_id = ?
+                """,
+                [corpus_id],
+            ).fetchone()
+        original_rows = int(row[0] or 0) if row is not None else 0
+        categorized_count = int(row[1] or 0) if row is not None else 0
+        uncategorized_count = max(original_rows - categorized_count, 0)
+        rows = (("已分类", categorized_count), ("未分类", uncategorized_count))
+        return PreparedChartDataset(
+            columns=("x", "source_count"),
+            rows=rows,
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="text_classification_status_counts",
+            parameters={"corpus_id": corpus_id},
+            approximate=False,
+        )
+
+    def chart_text_source_category_crosstab(
+        self,
+        corpus_id: str,
+        *,
+        x_limit: int,
+        y_limit: int,
+    ) -> PreparedChartDataset:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            original_rows = _text_corpus_row_count(connection, corpus_id)
+            rows = connection.execute(
+                f"""
+                WITH clean AS (
+                    SELECT
+                        {_text_source_label_sql()} AS source_label,
+                        {_text_category_label_sql()} AS category_label
+                    FROM text_records AS r
+                    LEFT JOIN text_categories AS c ON r.primary_category_id = c.id
+                    WHERE r.corpus_id = ?
+                ),
+                source_ranked AS (
+                    SELECT
+                        source_label,
+                        ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, source_label ASC) AS rank
+                    FROM clean
+                    GROUP BY source_label
+                ),
+                category_ranked AS (
+                    SELECT
+                        category_label,
+                        ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, category_label ASC) AS rank
+                    FROM clean
+                    GROUP BY category_label
+                )
+                SELECT
+                    CASE WHEN source_ranked.rank <= ? THEN source_label ELSE 'Other' END
+                        AS source_label,
+                    CASE WHEN category_ranked.rank <= ? THEN category_label ELSE 'Other' END
+                        AS category_label,
+                    COUNT(*) AS source_count
+                FROM clean
+                JOIN source_ranked USING (source_label)
+                JOIN category_ranked USING (category_label)
+                GROUP BY 1, 2
+                ORDER BY source_count DESC, source_label ASC, category_label ASC
+                """,
+                [corpus_id, x_limit, y_limit],
+            ).fetchall()
+        return PreparedChartDataset(
+            columns=("x", "y", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="text_source_category_crosstab",
+            parameters={
+                "corpus_id": corpus_id,
+                "x_limit": x_limit,
+                "y_limit": y_limit,
+                "other_label": "Other",
+            },
+            approximate=False,
+        )
+
+    def chart_text_keyword_counts(
+        self,
+        corpus_id: str,
+        keywords: tuple[str, ...],
+        *,
+        limit: int,
+    ) -> PreparedChartDataset:
+        keywords = tuple(dict.fromkeys(keyword.strip() for keyword in keywords if keyword.strip()))
+        limited_keywords = keywords[: max(limit, 0)]
+        rows: list[tuple[Any, ...]] = []
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            original_rows = _text_corpus_row_count(connection, corpus_id)
+            for keyword in limited_keywords:
+                row = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM text_records
+                    WHERE corpus_id = ?
+                      AND LOWER(content) LIKE LOWER(?) ESCAPE '\\'
+                    """,
+                    [corpus_id, _like_pattern(keyword)],
+                ).fetchone()
+                rows.append((keyword, int(row[0] or 0) if row is not None else 0))
+        rows.sort(key=lambda item: (-int(item[1]), str(item[0])))
+        return PreparedChartDataset(
+            columns=("x", "source_count"),
+            rows=tuple(rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="text_keyword_counts",
+            parameters={
+                "corpus_id": corpus_id,
+                "keywords": limited_keywords,
+                "limit": limit,
+            },
+            approximate=len(limited_keywords) < len(keywords),
+        )
+
+    def chart_text_category_keyword_counts(
+        self,
+        corpus_id: str,
+        keywords: tuple[str, ...],
+        *,
+        keyword_limit: int,
+        category_limit: int,
+    ) -> PreparedChartDataset:
+        keywords = tuple(dict.fromkeys(keyword.strip() for keyword in keywords if keyword.strip()))
+        limited_keywords = keywords[: max(keyword_limit, 0)]
+        rows: list[tuple[Any, ...]] = []
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            original_rows = _text_corpus_row_count(connection, corpus_id)
+            for keyword in limited_keywords:
+                keyword_rows = connection.execute(
+                    f"""
+                    WITH clean AS (
+                        SELECT {_text_category_label_sql()} AS category_label
+                        FROM text_records AS r
+                        LEFT JOIN text_categories AS c ON r.primary_category_id = c.id
+                        WHERE r.corpus_id = ?
+                          AND LOWER(r.content) LIKE LOWER(?) ESCAPE '\\'
+                    ),
+                    grouped AS (
+                        SELECT category_label, COUNT(*) AS source_count
+                        FROM clean
+                        GROUP BY category_label
+                    ),
+                    ranked AS (
+                        SELECT
+                            category_label,
+                            source_count,
+                            ROW_NUMBER() OVER (
+                                ORDER BY source_count DESC, category_label ASC
+                            ) AS rank
+                        FROM grouped
+                    )
+                    SELECT
+                        CASE WHEN rank <= ? THEN category_label ELSE 'Other' END
+                            AS category_label,
+                        SUM(source_count) AS source_count
+                    FROM ranked
+                    GROUP BY 1
+                    ORDER BY source_count DESC, category_label ASC
+                    """,
+                    [corpus_id, _like_pattern(keyword), category_limit],
+                ).fetchall()
+                rows.extend((keyword, row[0], row[1]) for row in keyword_rows)
+        return PreparedChartDataset(
+            columns=("x", "y", "source_count"),
+            rows=tuple(tuple(row) for row in rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="text_category_keyword_counts",
+            parameters={
+                "corpus_id": corpus_id,
+                "keywords": limited_keywords,
+                "keyword_limit": keyword_limit,
+                "category_limit": category_limit,
+                "other_label": "Other",
+            },
+            approximate=len(limited_keywords) < len(keywords),
+        )
+
+    def chart_text_tag_cooccurrence(
+        self,
+        corpus_id: str,
+        *,
+        tag_limit: int,
+    ) -> PreparedChartDataset:
+        with self._connect() as connection:
+            self._ensure_text_tables(connection)
+            original_rows = _text_corpus_row_count(connection, corpus_id)
+            total_tag_row = connection.execute(
+                """
+                SELECT COUNT(DISTINCT t.tag)
+                FROM text_record_tags AS t
+                JOIN text_records AS r ON t.record_id = r.id
+                WHERE r.corpus_id = ?
+                """,
+                [corpus_id],
+            ).fetchone()
+            total_tag_count = (
+                int(total_tag_row[0] or 0) if total_tag_row is not None else 0
+            )
+            tag_rows = connection.execute(
+                """
+                SELECT t.tag, COUNT(DISTINCT t.record_id) AS source_count
+                FROM text_record_tags AS t
+                JOIN text_records AS r ON t.record_id = r.id
+                WHERE r.corpus_id = ?
+                GROUP BY t.tag
+                ORDER BY source_count DESC, t.tag ASC
+                LIMIT ?
+                """,
+                [corpus_id, tag_limit],
+            ).fetchall()
+            top_tags = tuple(str(row[0]) for row in tag_rows)
+            if not top_tags:
+                pair_rows: tuple[tuple[Any, ...], ...] = ()
+            else:
+                placeholders = ", ".join("?" for _ in top_tags)
+                pair_rows = tuple(
+                    tuple(row)
+                    for row in connection.execute(
+                        f"""
+                        WITH filtered AS (
+                            SELECT t.record_id, t.tag
+                            FROM text_record_tags AS t
+                            JOIN text_records AS r ON t.record_id = r.id
+                            WHERE r.corpus_id = ?
+                              AND t.tag IN ({placeholders})
+                        )
+                        SELECT
+                            left_tags.tag AS left_tag,
+                            right_tags.tag AS right_tag,
+                            COUNT(*) AS source_count
+                        FROM filtered AS left_tags
+                        JOIN filtered AS right_tags
+                          ON left_tags.record_id = right_tags.record_id
+                         AND left_tags.tag < right_tags.tag
+                        GROUP BY left_tags.tag, right_tags.tag
+                        ORDER BY source_count DESC, left_tag ASC, right_tag ASC
+                        """,
+                        [corpus_id, *top_tags],
+                    ).fetchall()
+                )
+        rows: list[tuple[Any, ...]] = []
+        tag_counts = {str(row[0]): int(row[1] or 0) for row in tag_rows}
+        for tag in top_tags:
+            rows.append((tag, tag, tag_counts.get(tag, 0)))
+        for left_tag, right_tag, source_count in pair_rows:
+            count = int(source_count or 0)
+            rows.append((left_tag, right_tag, count))
+            rows.append((right_tag, left_tag, count))
+        return PreparedChartDataset(
+            columns=("x", "y", "source_count"),
+            rows=tuple(rows),
+            original_rows=original_rows,
+            rendered_rows=len(rows),
+            method="text_tag_cooccurrence_counts",
+            parameters={"corpus_id": corpus_id, "tag_limit": tag_limit},
+            approximate=total_tag_count > len(top_tags),
+        )
+
     def _category_numeric_rows(
         self,
         table_sql: str,
@@ -1475,6 +1945,33 @@ def _is_numeric_type(data_type: str) -> bool:
 def _is_datetime_type(data_type: str) -> bool:
     normalized = data_type.upper()
     return "DATE" in normalized or "TIME" in normalized
+
+
+def _text_corpus_row_count(connection: duckdb.DuckDBPyConnection, corpus_id: str) -> int:
+    row = connection.execute(
+        "SELECT COUNT(*) FROM text_records WHERE corpus_id = ?",
+        [corpus_id],
+    ).fetchone()
+    return int(row[0] or 0) if row is not None else 0
+
+
+def _text_category_label_sql() -> str:
+    return (
+        "COALESCE(c.name, "
+        "CASE WHEN r.primary_category_id IS NULL THEN '未分类' ELSE r.primary_category_id END)"
+    )
+
+
+def _text_source_label_sql() -> str:
+    return "COALESCE(NULLIF(TRIM(r.source), ''), '未标注来源')"
+
+
+def _like_pattern(value: str) -> str:
+    return f"%{_escape_like(value)}%"
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _text_record_filter_sql(
