@@ -38,6 +38,12 @@ class _FakeChartRequest:
         self.blocked = blocked
 
 
+def _set_combo_data(combo: QComboBox, value: str) -> None:
+    index = combo.findData(value)
+    assert index >= 0
+    combo.setCurrentIndex(index)
+
+
 def test_main_window_constructs_workspace_shell(qtbot) -> None:  # type: ignore[no-untyped-def]
     window = MainWindow(settings=AppSettings())
     qtbot.addWidget(window)
@@ -121,6 +127,68 @@ def test_main_window_shows_imported_dataset(qtbot, tmp_path) -> None:  # type: i
     assert "缺失值 2" in window.findChild(QLabel, "profileSummaryLabel").text()
     assert window.findChild(QListWidget, "profileFieldsList").count() == 2
     assert window.findChild(QListWidget, "profileFindingsList").count() >= 1
+
+
+def test_main_window_transform_panel_generates_non_destructive_preview(
+    qtbot,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text(
+        "\n".join(
+            [
+                "region,amount",
+                "North,5",
+                "North,15",
+                "South,25",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    result = service.import_csv(service.preview_csv(source))
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+    window._confirm_lossy_transform_preview = lambda _steps: True  # type: ignore[method-assign]
+
+    window._show_import_result(result)
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
+
+    operation = window.findChild(QComboBox, "transformOperationCombo")
+    column = window.findChild(QComboBox, "transformColumnCombo")
+    operator = window.findChild(QComboBox, "transformFilterOperatorCombo")
+    value = window.findChild(QLineEdit, "transformValueEdit")
+    steps = window.findChild(QListWidget, "transformStepList")
+    field_list = window.findChild(QListWidget, "transformFieldList")
+    status = window.findChild(QLabel, "transformStatusLabel")
+    cancel = window.findChild(QPushButton, "transformCancelPreviewButton")
+
+    assert field_list.count() == 2
+    assert cancel.isEnabled() is False
+    _set_combo_data(operation, "filter_rows")
+    _set_combo_data(column, "amount")
+    _set_combo_data(operator, ">=")
+    value.setText("10")
+    window.findChild(QPushButton, "transformAddStepButton").click()
+
+    assert steps.count() == 1
+    window.findChild(QPushButton, "transformPreviewButton").click()
+    qtbot.waitUntil(
+        lambda: window._running_transform_job is None
+        and window._current_tabular_table_name != result.table_name,
+        timeout=6000,
+    )
+
+    assert workspace.row_count(result.table_name) == 3
+    assert window._current_tabular_table_name is not None
+    assert workspace.row_count(window._current_tabular_table_name) == 2
+    assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：2"
+    assert "源表" in status.text()
+    assert steps.count() == 0
+    qtbot.waitUntil(lambda: window._running_profile_job is None, timeout=6000)
 
 
 def test_main_window_shows_one_click_analysis_findings(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]

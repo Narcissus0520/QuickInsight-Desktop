@@ -60,9 +60,9 @@ M4 is accepted.
 
 M5 is active.
 
-- [ ] No-code transforms and aggregation.
+- [x] No-code transforms and aggregation.
   - [x] Safe transform specification, SQL compiler, and DuckDB preview materialization.
-  - [ ] GUI transform panel with preview/confirmation for lossy operations.
+  - [x] GUI transform panel with preview/confirmation for lossy operations.
 - [ ] `.qiproject` save/reopen with source relocation.
 - [ ] Processed data and text export.
 - [ ] Safe category rename/merge/delete audit for text labels.

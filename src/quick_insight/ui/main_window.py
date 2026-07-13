@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -51,6 +52,7 @@ from quick_insight.application.text_labeling import (
     TextRecordFilter,
 )
 from quick_insight.application.text_profiling import TextCorpusProfiler
+from quick_insight.application.transforms import TabularTransformService, TransformPreviewResult
 from quick_insight.charts import (
     ChartExportFormat,
     ChartExportResult,
@@ -65,10 +67,11 @@ from quick_insight.domain.models import (
     ColumnProfile,
     DatasetProfile,
     TextRecord,
+    TransformStep,
 )
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings, save_settings
-from quick_insight.infrastructure.workspace import WorkspaceDatabase
+from quick_insight.infrastructure.workspace import WorkspaceColumn, WorkspaceDatabase
 from quick_insight.ui.chart_view import PlotlyChartView
 from quick_insight.ui.dialogs import TabularImportDialog, TextCorpusDialog
 from quick_insight.ui.jobs import QtJobRunner
@@ -98,6 +101,7 @@ class MainWindow(QMainWindow):
         self._import_service = TabularImportService(self._workspace)
         self._text_corpus_service = TextCorpusService(self._workspace)
         self._text_labeling_service = TextLabelingService(self._workspace)
+        self._transform_service = TabularTransformService(self._workspace)
 
         self._stack = QStackedWidget()
         self._error_label = QLabel("无错误")
@@ -113,6 +117,24 @@ class MainWindow(QMainWindow):
         self._recommendations_content = QWidget()
         self._recommendations_layout: QVBoxLayout | None = None
         self._chart_view = PlotlyChartView()
+        self._transform_status = QLabel("请先导入表格数据。")
+        self._transform_operation_combo = QComboBox()
+        self._transform_column_combo = QComboBox()
+        self._transform_extra_column_combo = QComboBox()
+        self._transform_filter_operator_combo = QComboBox()
+        self._transform_filter_join_combo = QComboBox()
+        self._transform_value_edit = QLineEdit()
+        self._transform_alias_edit = QLineEdit()
+        self._transform_direction_combo = QComboBox()
+        self._transform_type_combo = QComboBox()
+        self._transform_aggregation_combo = QComboBox()
+        self._transform_field_list = QListWidget()
+        self._transform_step_list = QListWidget()
+        self._transform_add_button = QPushButton("添加步骤")
+        self._transform_remove_button = QPushButton("移除步骤")
+        self._transform_clear_button = QPushButton("清空步骤")
+        self._transform_preview_button = QPushButton("生成预览表")
+        self._transform_cancel_button = QPushButton("取消预览")
         self._text_label_table = QTableView()
         self._text_label_status = QLabel("尚未加载文本语料。")
         self._text_search_edit = QLineEdit()
@@ -135,11 +157,15 @@ class MainWindow(QMainWindow):
         self._profile_generation = 0
         self._running_profile_job: QtJobRunner[DatasetProfile] | None = None
         self._running_chart_job: QtJobRunner[PlotlyChartDocument] | None = None
+        self._running_transform_job: QtJobRunner[TransformPreviewResult] | None = None
         self._chart_generation = 0
+        self._transform_generation = 0
         self._current_tabular_table_name: str | None = None
+        self._current_tabular_columns: tuple[WorkspaceColumn, ...] = ()
         self._current_profile: DatasetProfile | None = None
         self._current_recommendations: tuple[ChartRecommendation, ...] = ()
         self._current_text_corpus_id: str | None = None
+        self._transform_step_objects: list[TransformStep] = []
         self._text_label_model: TextRecordTableModel | None = None
         self._text_categories: tuple[Category, ...] = ()
         self._selected_text_record: TextRecord | None = None
@@ -272,10 +298,9 @@ class MainWindow(QMainWindow):
         title.setObjectName("sectionTitle")
         tabs = QTabWidget()
         tabs.setObjectName("rightTabs")
+        tabs.addTab(self._build_transform_panel(), "转换")
         for title_text, body in (
-            ("筛选", "M1/M5 将接入安全过滤表达式。"),
             ("字段", "字段映射和语义类型将在画像阶段接入。"),
-            ("聚合", "分组聚合将在变换阶段接入。"),
             ("样式", "图表样式将在图表工作区接入。"),
         ):
             tabs.addTab(self._placeholder_page(title_text, body), title_text)
@@ -283,6 +308,152 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(tabs, stretch=1)
         return panel
+
+    def _build_transform_panel(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self._transform_status.setObjectName("transformStatusLabel")
+        self._transform_status.setWordWrap(True)
+
+        self._transform_operation_combo.setObjectName("transformOperationCombo")
+        for label, operation in (
+            ("筛选行", "filter_rows"),
+            ("选择/重命名字段", "select_columns"),
+            ("排序", "sort_rows"),
+            ("去重", "deduplicate_rows"),
+            ("删除缺失值", "drop_missing"),
+            ("填充缺失值", "fill_missing"),
+            ("类型转换", "convert_type"),
+            ("分组聚合", "group_aggregate"),
+        ):
+            self._transform_operation_combo.addItem(label, operation)
+        self._transform_operation_combo.currentIndexChanged.connect(
+            self._sync_transform_controls
+        )
+
+        self._transform_column_combo.setObjectName("transformColumnCombo")
+        self._transform_extra_column_combo.setObjectName("transformExtraColumnCombo")
+
+        self._transform_filter_join_combo.setObjectName("transformFilterJoinCombo")
+        for label, value in (("并且", "and"), ("或者", "or")):
+            self._transform_filter_join_combo.addItem(label, value)
+
+        self._transform_filter_operator_combo.setObjectName("transformFilterOperatorCombo")
+        for label, value in (
+            ("等于", "=="),
+            ("不等于", "!="),
+            ("大于", ">"),
+            ("大于等于", ">="),
+            ("小于", "<"),
+            ("小于等于", "<="),
+            ("包含文本", "contains"),
+            ("以文本开头", "starts_with"),
+            ("以文本结尾", "ends_with"),
+            ("属于列表", "in"),
+            ("为空", "is_null"),
+            ("不为空", "is_not_null"),
+        ):
+            self._transform_filter_operator_combo.addItem(label, value)
+        self._transform_filter_operator_combo.currentIndexChanged.connect(
+            self._sync_transform_controls
+        )
+
+        self._transform_value_edit.setObjectName("transformValueEdit")
+        self._transform_value_edit.setPlaceholderText("筛选值、填充值或新字段名")
+        self._transform_alias_edit.setObjectName("transformAliasEdit")
+        self._transform_alias_edit.setPlaceholderText("输出字段名")
+
+        self._transform_direction_combo.setObjectName("transformDirectionCombo")
+        self._transform_direction_combo.addItem("升序", "asc")
+        self._transform_direction_combo.addItem("降序", "desc")
+
+        self._transform_type_combo.setObjectName("transformTypeCombo")
+        for label, value in (
+            ("文本", "VARCHAR"),
+            ("数值", "DOUBLE"),
+            ("整数", "BIGINT"),
+            ("布尔", "BOOLEAN"),
+            ("日期时间", "TIMESTAMP"),
+            ("日期", "DATE"),
+        ):
+            self._transform_type_combo.addItem(label, value)
+
+        self._transform_aggregation_combo.setObjectName("transformAggregationCombo")
+        for label, value in (
+            ("计数", "count"),
+            ("去重计数", "count_distinct"),
+            ("求和", "sum"),
+            ("平均值", "mean"),
+            ("中位数", "median"),
+            ("最小值", "min"),
+            ("最大值", "max"),
+            ("标准差", "stddev"),
+        ):
+            self._transform_aggregation_combo.addItem(label, value)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.addRow("操作", self._transform_operation_combo)
+        form.addRow("字段", self._transform_column_combo)
+        form.addRow("组合", self._transform_filter_join_combo)
+        form.addRow("条件", self._transform_filter_operator_combo)
+        form.addRow("值", self._transform_value_edit)
+        form.addRow("目标字段", self._transform_extra_column_combo)
+        form.addRow("排序", self._transform_direction_combo)
+        form.addRow("类型", self._transform_type_combo)
+        form.addRow("聚合", self._transform_aggregation_combo)
+        form.addRow("输出名", self._transform_alias_edit)
+
+        self._transform_field_list.setObjectName("transformFieldList")
+        self._transform_field_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self._transform_field_list.itemChanged.connect(
+            lambda _item: self._update_transform_status()
+        )
+
+        self._transform_step_list.setObjectName("transformStepList")
+        self._transform_step_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+
+        self._transform_add_button.setObjectName("transformAddStepButton")
+        self._transform_remove_button.setObjectName("transformRemoveStepButton")
+        self._transform_clear_button.setObjectName("transformClearStepsButton")
+        self._transform_preview_button.setObjectName("transformPreviewButton")
+        self._transform_cancel_button.setObjectName("transformCancelPreviewButton")
+        self._transform_preview_button.setProperty("primary", True)
+        self._transform_add_button.clicked.connect(self._add_transform_step_from_ui)
+        self._transform_remove_button.clicked.connect(self._remove_selected_transform_step)
+        self._transform_clear_button.clicked.connect(self._clear_transform_steps)
+        self._transform_preview_button.clicked.connect(self._preview_transform_steps)
+        self._transform_cancel_button.clicked.connect(self._cancel_transform_preview)
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(self._transform_add_button)
+        button_row.addWidget(self._transform_remove_button)
+        button_row.addWidget(self._transform_clear_button)
+        button_row.addStretch(1)
+
+        preview_row = QHBoxLayout()
+        preview_row.addStretch(1)
+        preview_row.addWidget(self._transform_cancel_button)
+        preview_row.addWidget(self._transform_preview_button)
+
+        layout.addWidget(self._transform_status)
+        layout.addLayout(form)
+        layout.addWidget(QLabel("选择字段"))
+        layout.addWidget(self._transform_field_list, stretch=1)
+        layout.addWidget(QLabel("转换步骤"))
+        layout.addWidget(self._transform_step_list, stretch=1)
+        layout.addLayout(button_row)
+        layout.addLayout(preview_row)
+        self._sync_transform_controls()
+        self._set_transform_panel_enabled(False)
+        return page
 
     def _build_bottom_status(self) -> QWidget:
         status = QFrame()
@@ -504,6 +675,503 @@ class MainWindow(QMainWindow):
         self._refresh_text_label_categories()
         return page
 
+    def _set_transform_panel_enabled(self, enabled: bool, message: str | None = None) -> None:
+        for widget in (
+            self._transform_operation_combo,
+            self._transform_column_combo,
+            self._transform_extra_column_combo,
+            self._transform_filter_operator_combo,
+            self._transform_filter_join_combo,
+            self._transform_value_edit,
+            self._transform_alias_edit,
+            self._transform_direction_combo,
+            self._transform_type_combo,
+            self._transform_aggregation_combo,
+            self._transform_field_list,
+            self._transform_step_list,
+            self._transform_add_button,
+            self._transform_remove_button,
+            self._transform_clear_button,
+            self._transform_preview_button,
+        ):
+            widget.setEnabled(enabled)
+        self._transform_cancel_button.setEnabled(
+            enabled and self._running_transform_job is not None
+        )
+        if message is not None:
+            self._transform_status.setText(message)
+        elif enabled:
+            self._sync_transform_controls()
+            self._update_transform_status()
+        else:
+            self._transform_status.setText("请先导入表格数据。")
+
+    def _refresh_transform_columns(self, columns: tuple[WorkspaceColumn, ...]) -> None:
+        self._current_tabular_columns = columns
+        for combo in (self._transform_column_combo, self._transform_extra_column_combo):
+            blocker = QSignalBlocker(combo)
+            combo.clear()
+            for column in columns:
+                combo.addItem(column.name, column.name)
+            del blocker
+
+        blocker = QSignalBlocker(self._transform_field_list)
+        self._transform_field_list.clear()
+        for column in columns:
+            item = QListWidgetItem(column.name)
+            item.setData(Qt.ItemDataRole.UserRole, column.name)
+            item.setFlags(
+                item.flags()
+                | Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEditable
+            )
+            item.setCheckState(Qt.CheckState.Checked)
+            self._transform_field_list.addItem(item)
+        del blocker
+        self._sync_transform_controls()
+        self._update_transform_status()
+
+    def _sync_transform_controls(self) -> None:
+        operation = self._current_transform_operation()
+        has_table = self._current_tabular_table_name is not None
+        uses_filter = operation == "filter_rows"
+        self._transform_filter_join_combo.setEnabled(has_table and uses_filter)
+        self._transform_filter_operator_combo.setEnabled(has_table and uses_filter)
+        value_needed = operation == "fill_missing" or (
+            operation == "filter_rows"
+            and self._current_filter_operator() not in {"is_null", "is_not_null"}
+        )
+        self._transform_value_edit.setEnabled(has_table and value_needed)
+        self._transform_alias_edit.setEnabled(
+            has_table and operation in {"select_columns", "group_aggregate"}
+        )
+        self._transform_extra_column_combo.setEnabled(
+            has_table and operation == "group_aggregate"
+        )
+        self._transform_direction_combo.setEnabled(has_table and operation == "sort_rows")
+        self._transform_type_combo.setEnabled(has_table and operation == "convert_type")
+        self._transform_aggregation_combo.setEnabled(
+            has_table and operation == "group_aggregate"
+        )
+        self._transform_field_list.setEnabled(has_table and operation == "select_columns")
+
+    def _update_transform_status(self) -> None:
+        if self._current_tabular_table_name is None:
+            self._transform_status.setText("请先导入表格数据。")
+            return
+        step_count = len(self._transform_step_objects)
+        field_count = len(self._current_tabular_columns)
+        self._transform_status.setText(
+            f"当前表有 {field_count} 个字段；已配置 {step_count} 个转换步骤。"
+        )
+
+    def _current_transform_operation(self) -> str:
+        value = self._transform_operation_combo.currentData()
+        return value if isinstance(value, str) else "filter_rows"
+
+    def _current_filter_operator(self) -> str:
+        value = self._transform_filter_operator_combo.currentData()
+        return value if isinstance(value, str) else "=="
+
+    def _current_transform_column(self) -> str:
+        value = self._transform_column_combo.currentData()
+        if isinstance(value, str) and value:
+            return value
+        raise UserFacingError(
+            code="TRANSFORM_UI_NO_COLUMN",
+            title_zh="请选择字段",
+            message_zh="添加转换步骤前需要先选择一个字段。",
+            next_action_zh="请先导入表格数据，然后在字段下拉框中选择要处理的字段。",
+        )
+
+    def _current_transform_extra_column(self) -> str:
+        value = self._transform_extra_column_combo.currentData()
+        if isinstance(value, str) and value:
+            return value
+        raise UserFacingError(
+            code="TRANSFORM_UI_NO_METRIC_COLUMN",
+            title_zh="请选择目标字段",
+            message_zh="分组聚合需要选择一个用于计算的目标字段。",
+            next_action_zh="请选择数值或类别字段后再添加聚合步骤。",
+        )
+
+    def _add_transform_step_from_ui(self) -> None:
+        try:
+            step = self._build_transform_step_from_ui()
+        except UserFacingError as exc:
+            self.show_user_error(exc)
+            return
+        except Exception as exc:
+            self.show_user_error(
+                UserFacingError(
+                    code="TRANSFORM_UI_STEP_INVALID",
+                    title_zh="转换步骤无效",
+                    message_zh="无法根据当前控件内容生成安全的转换步骤。",
+                    next_action_zh="请检查字段、条件、值和输出名后重试。",
+                    technical_detail=repr(exc),
+                )
+            )
+            return
+
+        if step.operation == "filter_rows" and self._transform_step_objects:
+            join = self._transform_filter_join_combo.currentData()
+            last_step = self._transform_step_objects[-1]
+            if isinstance(join, str) and last_step.operation == "filter_rows":
+                expression = {
+                    "op": join,
+                    "conditions": [
+                        last_step.parameters.get("expression"),
+                        step.parameters.get("expression"),
+                    ],
+                }
+                step = TransformStep(
+                    id=last_step.id,
+                    operation="filter_rows",
+                    parameters={"expression": expression},
+                    reversible=False,
+                )
+                self._transform_step_objects[-1] = step
+                item = self._transform_step_list.item(self._transform_step_list.count() - 1)
+                if item is not None:
+                    item.setText(_transform_step_text(step))
+                self._update_transform_status()
+                return
+
+        self._transform_step_objects.append(step)
+        self._transform_step_list.addItem(_transform_step_text(step))
+        self._update_transform_status()
+
+    def _build_transform_step_from_ui(self) -> TransformStep:
+        if self._current_tabular_table_name is None:
+            raise UserFacingError(
+                code="TRANSFORM_UI_NO_TABLE",
+                title_zh="没有可转换的表格",
+                message_zh="转换面板只能处理已经导入并写入本地工作区的表格数据。",
+                next_action_zh="请先导入 CSV、Excel 或 Parquet 表格。",
+            )
+        operation = self._current_transform_operation()
+        step_id = f"ui_transform_{len(self._transform_step_objects) + 1}"
+        column = self._current_transform_column()
+        if operation == "filter_rows":
+            operator = self._current_filter_operator()
+            expression: dict[str, object] = {"column": column, "op": operator}
+            if operator not in {"is_null", "is_not_null"}:
+                expression["value"] = self._filter_value(column, operator)
+            return TransformStep(
+                id=step_id,
+                operation="filter_rows",
+                parameters={"expression": expression},
+                reversible=False,
+            )
+        if operation == "select_columns":
+            entries = self._selected_transform_fields()
+            if not entries:
+                raise UserFacingError(
+                    code="TRANSFORM_UI_NO_SELECTED_COLUMNS",
+                    title_zh="没有选择字段",
+                    message_zh="选择/重命名步骤至少需要保留一个字段。",
+                    next_action_zh="请勾选要保留的字段，可以直接编辑字段名作为输出名。",
+                )
+            alias_text = self._transform_alias_edit.text().strip()
+            if alias_text and len(entries) == 1:
+                entries = ({"source": entries[0]["source"], "alias": alias_text},)
+            return TransformStep(
+                id=step_id,
+                operation="select_columns",
+                parameters={"columns": list(entries)},
+                reversible=False,
+            )
+        if operation == "sort_rows":
+            direction = self._transform_direction_combo.currentData()
+            return TransformStep(
+                id=step_id,
+                operation="sort_rows",
+                parameters={
+                    "columns": [
+                        {
+                            "column": column,
+                            "direction": direction if isinstance(direction, str) else "asc",
+                        }
+                    ]
+                },
+                reversible=True,
+            )
+        if operation == "deduplicate_rows":
+            return TransformStep(
+                id=step_id,
+                operation="deduplicate_rows",
+                parameters={"columns": [column]},
+                reversible=False,
+            )
+        if operation == "drop_missing":
+            return TransformStep(
+                id=step_id,
+                operation="drop_missing",
+                parameters={"columns": [column]},
+                reversible=False,
+            )
+        if operation == "fill_missing":
+            return TransformStep(
+                id=step_id,
+                operation="fill_missing",
+                parameters={"values": {column: self._coerced_text_value(column)}},
+                reversible=False,
+            )
+        if operation == "convert_type":
+            target_type = self._transform_type_combo.currentData()
+            return TransformStep(
+                id=step_id,
+                operation="convert_type",
+                parameters={
+                    "columns": {column: target_type if isinstance(target_type, str) else "VARCHAR"},
+                    "on_error": "null",
+                },
+                reversible=False,
+            )
+        if operation == "group_aggregate":
+            function = self._transform_aggregation_combo.currentData()
+            if not isinstance(function, str):
+                function = "count"
+            aggregation: dict[str, object] = {
+                "function": function,
+                "alias": self._aggregation_alias(function),
+            }
+            if function != "count":
+                aggregation["column"] = self._current_transform_extra_column()
+            return TransformStep(
+                id=step_id,
+                operation="group_aggregate",
+                parameters={"group_by": [column], "aggregations": [aggregation]},
+                reversible=False,
+            )
+        raise UserFacingError(
+            code="TRANSFORM_UI_OPERATION_UNSUPPORTED",
+            title_zh="转换操作不受支持",
+            message_zh=f"当前界面不支持操作：{operation}",
+            next_action_zh="请选择转换面板中的已有操作。",
+        )
+
+    def _selected_transform_fields(self) -> tuple[dict[str, str], ...]:
+        entries: list[dict[str, str]] = []
+        for index in range(self._transform_field_list.count()):
+            item = self._transform_field_list.item(index)
+            if item is None or item.checkState() != Qt.CheckState.Checked:
+                continue
+            source = item.data(Qt.ItemDataRole.UserRole)
+            alias = item.text().strip()
+            if isinstance(source, str) and alias:
+                entries.append({"source": source, "alias": alias})
+        return tuple(entries)
+
+    def _filter_value(self, column: str, operator: str) -> object:
+        raw_value = self._transform_value_edit.text().strip()
+        if operator == "in":
+            values = tuple(part.strip() for part in raw_value.split(",") if part.strip())
+            if not values:
+                raise UserFacingError(
+                    code="TRANSFORM_UI_EMPTY_VALUE_LIST",
+                    title_zh="列表值为空",
+                    message_zh="属于列表条件需要至少一个值。",
+                    next_action_zh="请输入一个或多个值，用英文逗号分隔。",
+                )
+            return tuple(
+                _coerce_transform_value(column, value, self._current_tabular_columns)
+                for value in values
+            )
+        if not raw_value:
+            raise UserFacingError(
+                code="TRANSFORM_UI_EMPTY_FILTER_VALUE",
+                title_zh="筛选值为空",
+                message_zh="当前筛选条件需要填写比较值。",
+                next_action_zh="请输入筛选值，或改用为空/不为空条件。",
+            )
+        return _coerce_transform_value(column, raw_value, self._current_tabular_columns)
+
+    def _coerced_text_value(self, column: str) -> object:
+        value = self._transform_value_edit.text()
+        return _coerce_transform_value(column, value, self._current_tabular_columns)
+
+    def _aggregation_alias(self, function: str) -> str:
+        alias = self._transform_alias_edit.text().strip()
+        if alias:
+            return alias
+        metric = self._transform_extra_column_combo.currentText() or "rows"
+        return f"{function}_{metric}".replace(" ", "_")
+
+    def _remove_selected_transform_step(self) -> None:
+        row = self._transform_step_list.currentRow()
+        if row < 0 or row >= len(self._transform_step_objects):
+            self._transform_status.setText("请先选择要移除的转换步骤。")
+            return
+        del self._transform_step_objects[row]
+        self._transform_step_list.takeItem(row)
+        self._update_transform_status()
+
+    def _clear_transform_steps(self) -> None:
+        self._transform_step_objects.clear()
+        self._transform_step_list.clear()
+        self._update_transform_status()
+
+    def _preview_transform_steps(self) -> None:
+        table_name = self._current_tabular_table_name
+        if table_name is None:
+            self.show_user_error(
+                UserFacingError(
+                    code="TRANSFORM_UI_NO_TABLE_FOR_PREVIEW",
+                    title_zh="没有可预览的表格",
+                    message_zh="转换预览需要一个已经导入的表格。",
+                    next_action_zh="请先导入表格数据。",
+                )
+            )
+            return
+        steps = tuple(self._transform_step_objects)
+        if not steps:
+            self._transform_status.setText("请先添加至少一个转换步骤。")
+            return
+        if not self._confirm_lossy_transform_preview(steps):
+            self._transform_status.setText("已取消转换预览，源数据未修改。")
+            return
+        if self._running_transform_job is not None:
+            self._running_transform_job.cancel()
+        self._transform_generation += 1
+        generation = self._transform_generation
+        self._jobs_label.setText("后台任务：正在生成转换预览")
+        self._transform_status.setText("正在后台生成转换预览表。")
+        self._transform_cancel_button.setEnabled(True)
+        job = QtJobRunner(
+            "tabular_transform_preview",
+            lambda context: self._run_transform_preview(
+                context,
+                table_name=table_name,
+                steps=steps,
+            ),
+        )
+        self._running_transform_job = job
+        job.signals.progress.connect(self._on_transform_progress)
+        job.signals.completed.connect(
+            lambda outcome, expected_generation=generation: self._on_transform_completed(
+                expected_generation,
+                outcome,
+            )
+        )
+        QThreadPool.globalInstance().start(job)
+
+    def _cancel_transform_preview(self) -> None:
+        if self._running_transform_job is None:
+            self._transform_status.setText("当前没有正在运行的转换预览。")
+            self._transform_cancel_button.setEnabled(False)
+            return
+        self._running_transform_job.cancel()
+        self._transform_status.setText("正在取消转换预览，源数据未修改。")
+        self._jobs_label.setText("后台任务：正在取消转换预览")
+
+    def _confirm_lossy_transform_preview(self, steps: tuple[TransformStep, ...]) -> bool:
+        warnings = _lossy_transform_warnings(steps)
+        if not warnings:
+            return True
+        message = "以下步骤可能减少行、隐藏字段或改变值；源表不会被覆盖。\n\n"
+        message += "\n".join(f"- {warning}" for warning in warnings)
+        message += "\n\n是否继续生成本地预览表？"
+        return (
+            QMessageBox.question(
+                self,
+                "确认转换预览",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
+        )
+
+    def _run_transform_preview(
+        self,
+        context: JobContext,
+        *,
+        table_name: str,
+        steps: tuple[TransformStep, ...],
+    ) -> TransformPreviewResult:
+        context.progress(10, "正在检查转换步骤")
+        result = self._transform_service.preview_transform(table_name, steps)
+        context.progress(90, "正在读取转换预览结果")
+        return result
+
+    def _on_transform_progress(self, progress: JobProgress) -> None:
+        if self._is_disposed or progress.state is not JobState.RUNNING:
+            return
+        percent_text = "" if progress.percent is None else f"{progress.percent}% "
+        self._jobs_label.setText(f"后台任务：{percent_text}{progress.message_zh}")
+
+    def _on_transform_completed(
+        self,
+        expected_generation: int,
+        outcome: JobOutcome[TransformPreviewResult],
+    ) -> None:
+        if self._is_disposed or expected_generation != self._transform_generation:
+            return
+        self._running_transform_job = None
+        self._transform_cancel_button.setEnabled(False)
+        if outcome.state is JobState.CANCELLED:
+            self._jobs_label.setText("后台任务：转换预览已取消")
+            self._transform_status.setText("转换预览已取消，源数据未修改。")
+            return
+        if outcome.state is JobState.SUCCEEDED and outcome.value is not None:
+            self._show_transform_preview_result(outcome.value)
+            return
+        self._jobs_label.setText("后台任务：转换预览失败")
+        self._transform_status.setText("转换预览失败，源数据未修改。")
+        if isinstance(outcome.error, UserFacingError):
+            self.show_user_error(outcome.error)
+            return
+        self.show_user_error(
+            UserFacingError(
+                code="TRANSFORM_PREVIEW_UNEXPECTED_FAILURE",
+                title_zh="转换预览失败",
+                message_zh="生成转换预览时发生未预期错误，源数据没有被修改。",
+                next_action_zh="请检查转换步骤，复制技术详情后稍后重试或提交问题。",
+                technical_detail=repr(outcome.error),
+            )
+        )
+
+    def _show_transform_preview_result(self, result: TransformPreviewResult) -> None:
+        display_name = f"转换预览 {len(result.steps)} 步"
+        self._current_tabular_table_name = result.table_name
+        self._current_tabular_columns = result.columns
+        self._current_text_corpus_id = None
+        self._dataset_list.addItem(display_name)
+        self._preview_table.setModel(
+            DuckDbTableModel(
+                workspace=self._workspace,
+                table_name=result.table_name,
+                columns=result.columns,
+                row_count=result.row_count,
+            )
+        )
+        self._preview_summary.setText(
+            f"{display_name}：{result.row_count} 行，{len(result.columns)} 列。"
+            "源表未修改，转换结果写入本地预览表。"
+        )
+        self._row_count_label.setText(f"行/记录：{result.row_count}")
+        self._query_time_label.setText("查询：转换预览分页")
+        self._approximation_label.setText("近似：无")
+        self._jobs_label.setText("后台任务：转换预览已完成")
+        self._error_label.setText("无错误")
+        self._refresh_transform_columns(result.columns)
+        self._transform_step_objects.clear()
+        self._transform_step_list.clear()
+        self._transform_status.setText(
+            f"已生成预览表 {result.table_name}，源表 {result.source_table} 未修改。"
+        )
+        self._stack.setCurrentIndex(1)
+        self.statusBar().showMessage("转换预览完成", 5000)
+        self._start_tabular_profile_job(
+            dataset_id=result.table_name,
+            table_name=result.table_name,
+            import_options={
+                "transform_step_count": len(result.steps),
+                "transform_steps": [_transform_step_payload(step) for step in result.steps],
+            },
+        )
+
     def _handle_welcome_action(self, key: str) -> None:
         if key == "import_tabular":
             self._open_tabular_import()
@@ -562,7 +1230,11 @@ class MainWindow(QMainWindow):
     def _show_import_result(self, result: TabularImportResult) -> None:
         handle = result.handle
         self._current_tabular_table_name = result.table_name
+        self._current_tabular_columns = result.columns
         self._current_text_corpus_id = None
+        self._refresh_transform_columns(result.columns)
+        self._clear_transform_steps()
+        self._set_transform_panel_enabled(True)
         self._dataset_list.addItem(handle.display_name)
         self._preview_table.setModel(
             DuckDbTableModel(
@@ -587,6 +1259,10 @@ class MainWindow(QMainWindow):
     def _show_text_corpus_result(self, result: TextCorpusImportResult) -> None:
         handle = result.handle
         self._current_tabular_table_name = None
+        self._current_tabular_columns = ()
+        self._refresh_transform_columns(())
+        self._clear_transform_steps()
+        self._set_transform_panel_enabled(False, "文本语料暂不使用表格转换面板。")
         self._dataset_list.addItem(handle.display_name)
         self._row_count_label.setText(f"行/记录：{handle.row_count}")
         self._query_time_label.setText("查询：文本语料已保存")
@@ -1216,18 +1892,31 @@ class MainWindow(QMainWindow):
         if self._running_chart_job is not None:
             self._running_chart_job.cancel()
             self._running_chart_job = None
+        if self._running_transform_job is not None:
+            self._running_transform_job.cancel()
+            self._running_transform_job = None
         if self._text_label_model is not None:
             self._text_label_model.cancel_pending_queries()
             self._text_label_model = None
 
     def _start_profile_job(self, result: TabularImportResult) -> None:
+        self._start_tabular_profile_job(
+            dataset_id=result.handle.id,
+            table_name=result.table_name,
+            import_options=dict(result.handle.import_options),
+        )
+
+    def _start_tabular_profile_job(
+        self,
+        *,
+        dataset_id: str,
+        table_name: str,
+        import_options: dict[str, object],
+    ) -> None:
         if self._running_profile_job is not None:
             self._running_profile_job.cancel()
         self._profile_generation += 1
         generation = self._profile_generation
-        handle = result.handle
-        table_name = result.table_name
-        import_options = dict(handle.import_options)
         self._profile_summary.setText("正在生成数据画像和质量检查...")
         self._profile_fields.clear()
         self._profile_findings.clear()
@@ -1236,7 +1925,7 @@ class MainWindow(QMainWindow):
             "tabular_profile",
             lambda context: self._profile_table(
                 context,
-                dataset_id=handle.id,
+                dataset_id=dataset_id,
                 table_name=table_name,
                 import_options=import_options,
             ),
@@ -1425,6 +2114,140 @@ class MainWindow(QMainWindow):
         self._jobs_label.setText("后台任务：空闲")
         self._stack.setCurrentIndex(2)
         self.statusBar().showMessage("文本画像完成", 5000)
+
+
+def _coerce_transform_value(
+    column_name: str,
+    value: str,
+    columns: tuple[WorkspaceColumn, ...],
+) -> object:
+    data_type = ""
+    for column in columns:
+        if column.name == column_name:
+            data_type = column.data_type.upper()
+            break
+    if _is_integer_workspace_type(data_type):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    if _is_numeric_workspace_type(data_type):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    if "BOOL" in data_type:
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "y", "是"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "否"}:
+            return False
+    return value
+
+
+def _is_integer_workspace_type(data_type: str) -> bool:
+    return any(token in data_type for token in ("BIGINT", "INTEGER", "SMALLINT", "TINYINT"))
+
+
+def _is_numeric_workspace_type(data_type: str) -> bool:
+    return any(
+        token in data_type
+        for token in ("DECIMAL", "DOUBLE", "FLOAT", "REAL", "HUGEINT", "UBIGINT")
+    ) or _is_integer_workspace_type(data_type)
+
+
+def _transform_step_text(step: TransformStep) -> str:
+    parameters = step.parameters
+    if step.operation == "filter_rows":
+        return f"筛选行：{_filter_expression_text(parameters.get('expression'))}"
+    if step.operation == "select_columns":
+        columns = parameters.get("columns")
+        if isinstance(columns, list | tuple):
+            return f"选择/重命名字段：保留 {len(columns)} 个字段"
+        return "选择/重命名字段"
+    if step.operation == "sort_rows":
+        return f"排序：{parameters.get('columns')}"
+    if step.operation == "deduplicate_rows":
+        return f"去重：{parameters.get('columns')}"
+    if step.operation == "drop_missing":
+        return f"删除缺失值：{parameters.get('columns')}"
+    if step.operation == "fill_missing":
+        values = parameters.get("values")
+        return f"填充缺失值：{', '.join(values) if isinstance(values, dict) else values}"
+    if step.operation == "convert_type":
+        return f"类型转换：{parameters.get('columns')}"
+    if step.operation == "group_aggregate":
+        return (
+            f"分组聚合：按 {parameters.get('group_by')}，"
+            f"计算 {parameters.get('aggregations')}"
+        )
+    return step.operation
+
+
+def _filter_expression_text(expression: object) -> str:
+    if not isinstance(expression, dict):
+        return "条件无效"
+    op = str(expression.get("op", ""))
+    if op in {"and", "or"}:
+        joiner = " 并且 " if op == "and" else " 或者 "
+        conditions = expression.get("conditions")
+        if isinstance(conditions, list | tuple):
+            return "(" + joiner.join(_filter_expression_text(item) for item in conditions) + ")"
+    if op == "not":
+        return "非 " + _filter_expression_text(expression.get("condition"))
+    column = expression.get("column")
+    if op in {"is_null", "is_not_null"}:
+        return f"{column} {_filter_operator_text(op)}"
+    return f"{column} {_filter_operator_text(op)} {expression.get('value')}"
+
+
+def _filter_operator_text(operator: str) -> str:
+    return {
+        "==": "=",
+        "eq": "=",
+        "!=": "!=",
+        "ne": "!=",
+        ">": ">",
+        ">=": ">=",
+        "<": "<",
+        "<=": "<=",
+        "contains": "包含",
+        "starts_with": "开头为",
+        "ends_with": "结尾为",
+        "in": "属于",
+        "is_null": "为空",
+        "is_not_null": "不为空",
+    }.get(operator, operator)
+
+
+def _lossy_transform_warnings(steps: tuple[TransformStep, ...]) -> tuple[str, ...]:
+    warnings: list[str] = []
+    for step in steps:
+        if step.operation == "filter_rows":
+            warnings.append("筛选行可能减少可见记录。")
+        elif step.operation == "select_columns":
+            warnings.append("选择/重命名字段可能隐藏字段或改变字段名。")
+        elif step.operation == "deduplicate_rows":
+            warnings.append("去重会只保留每组第一条记录。")
+        elif step.operation == "drop_missing":
+            warnings.append("删除缺失值会移除含空值的记录。")
+        elif step.operation == "fill_missing":
+            warnings.append("填充缺失值会改变预览结果中的空值。")
+        elif step.operation == "convert_type":
+            warnings.append("类型转换失败的值会在预览中变为空值。")
+        elif step.operation == "group_aggregate":
+            warnings.append("分组聚合会把明细行汇总为聚合结果。")
+    return tuple(warnings)
+
+
+def _transform_step_payload(step: TransformStep) -> dict[str, object]:
+    return {
+        "id": step.id,
+        "operation": step.operation,
+        "parameters": step.parameters,
+        "reversible": step.reversible,
+        "schema_version": step.schema_version,
+    }
 
 
 def _field_profile_text(column: ColumnProfile) -> str:

@@ -37,10 +37,10 @@ Date: 2026-07-13
 - Added stronger runtime validation for chart resource blocking: a shared chart request policy allows only local chart schemes, rejects external/file/script schemes, hardens WebEngine local-content settings, records blocked requests in the chart view, and adds unit/UI coverage.
 - Completed M4 real chart data preparation for box plots, correlation heatmaps, and current text-corpus chart specs. Box plots use DuckDB grouped quantiles, correlation heatmaps use DuckDB Pearson matrices, and text charts use persisted `text_records`, `text_categories`, and `text_record_tags` tables instead of renderer previews.
 - Added the first M5 transform foundation: typed `TransformStep` execution through `TabularTransformService`, restricted transform SQL compilation, and non-destructive DuckDB preview materialization for select/rename, safe type conversion, AND/OR filters, sorting, deduplication, missing-value drop/fill, and group aggregation.
+- Completed the M5 no-code transform UI slice: the right-panel transform page now creates safe `TransformStep` objects for field selection/rename, filters, sorting, deduplication, missing-value drop/fill, safe type conversion, and group aggregation; lossy operations require confirmation, preview runs in a cancellable background job, and successful previews activate a new local DuckDB table without mutating the source table.
 
 ## Remaining Work
 
-- Add the GUI no-code transform panel with lossy-operation preview/confirmation and background execution.
 - Add `.qiproject` save/reopen with source relocation.
 - Add processed data and text export.
 - Add safe category rename/merge/delete audit for text labels.
@@ -50,7 +50,7 @@ Date: 2026-07-13
 
 - Full packaging is intentionally deferred to M6.
 - SVG/PNG export requires a loaded desktop `QWebEngineView`; offscreen automated tests cover HTML/JSON export and the `toImage` bridge script rather than executing browser image capture.
-- Transform execution is currently available as an application/workspace service with tests; the end-user no-code transform panel is not implemented yet.
+- Transform history is currently visible as pending UI steps and preview-table lineage only; durable transform/project history awaits `.qiproject` persistence.
 - Project persistence is not implemented yet.
 - Recommendation-card edit actions remain guarded until editable chart specifications are implemented.
 - Offscreen automated tests generate local Plotly HTML but skip calling WebEngine `setHtml` to avoid a Qt offscreen shutdown access violation; normal desktop runs still use `QWebEngineView`.
@@ -118,7 +118,9 @@ Date: 2026-07-13
 - M4 real chart preparation completion slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 - M5 transform foundation slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 48 source files, pytest passed 79 tests on Python 3.13.14 / PySide6 6.11.1.
 - M5 transform foundation slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M5 no-code transform UI slice `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 48 source files, pytest passed 80 tests on Python 3.13.14 / PySide6 6.11.1.
+- M5 no-code transform UI slice `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
 
 ## Next Action
 
-Add the GUI no-code transform panel and preview/confirmation flow.
+Add `.qiproject` save/reopen with source relocation.
