@@ -50,7 +50,7 @@ def run(argv: Sequence[str] | None = None) -> int:
     app.setApplicationVersion(__version__)
     app.setOrganizationName("QuickInsight")
 
-    window = MainWindow(settings=settings, settings_path=paths.settings_file)
+    window = MainWindow(settings=settings, settings_path=paths.settings_file, paths=paths)
     window.show()
     window.setWindowTitle(APP_NAME_ZH)
     logger.info("app_started", extra={"operation": "startup", "version": __version__})

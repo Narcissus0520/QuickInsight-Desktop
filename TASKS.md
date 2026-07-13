@@ -15,12 +15,13 @@
 
 ## M1 - Tabular Import And Virtual Preview
 
-M1 begins only after M0 gates pass.
+M1 is active.
 
-- [ ] CSV/TSV import wizard with preview/confirmation.
+- [x] CSV/TSV import wizard with preview/confirmation.
 - [ ] Excel and Parquet preview path.
-- [ ] DuckDB workspace and normalized cache.
-- [ ] Safe paged table model backed by DuckDB.
+- [x] DuckDB workspace for confirmed CSV/TSV imports.
+- [ ] Normalized Parquet cache and source invalidation.
+- [x] Safe paged table model backed by DuckDB.
 - [ ] Background import/query jobs with cancellation and clear errors.
 
 ## M2 - Profiling, One-Click Analysis, And Text Corpus Workflow

@@ -5,7 +5,10 @@ import pytest
 pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QLabel, QPushButton
 
+from quick_insight.application.importing import TabularImportService
+from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
+from quick_insight.infrastructure.workspace import WorkspaceDatabase
 from quick_insight.ui.main_window import MainWindow
 
 
@@ -37,3 +40,19 @@ def test_theme_switching_updates_current_theme(qtbot) -> None:  # type: ignore[n
     window.apply_theme("dark", persist=False)
 
     assert window.current_theme == "dark"
+
+
+def test_main_window_shows_imported_dataset(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("name,amount\nalpha,1\n", encoding="utf-8")
+    paths = AppPaths.under(tmp_path / "app").ensure()
+    workspace = WorkspaceDatabase(paths.cache_dir / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    result = service.import_csv(service.preview_csv(source))
+    window = MainWindow(settings=AppSettings(), paths=paths)
+    qtbot.addWidget(window)
+
+    window._show_import_result(result)
+
+    assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：1"
+    assert window.findChild(QLabel, "approximationLabel").text() == "近似：无"

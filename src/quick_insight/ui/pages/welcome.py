@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 
 class WelcomePage(QWidget):
     action_requested = Signal(str)
+    file_dropped = Signal(str)
 
     ACTIONS: tuple[tuple[str, str, bool], ...] = (
         ("导入表格数据", "import_tabular", True),
@@ -67,3 +69,24 @@ class WelcomePage(QWidget):
         drop_layout.addWidget(drop_hint, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(drop_zone)
         layout.addStretch(1)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if _first_local_file(event.mimeData()) is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        path = _first_local_file(event.mimeData())
+        if path is None:
+            event.ignore()
+            return
+        self.file_dropped.emit(path)
+        event.acceptProposedAction()
+
+
+def _first_local_file(mime_data: QMimeData) -> str | None:
+    for url in mime_data.urls():
+        if url.isLocalFile():
+            return url.toLocalFile()
+    return None
