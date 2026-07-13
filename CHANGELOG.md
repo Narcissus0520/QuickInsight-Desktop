@@ -8,4 +8,5 @@
 - Added the first M1 tabular import slice: CSV/TSV detection, preview confirmation dialog, DuckDB workspace import, and paged `QTableView` preview.
 - Added Excel/Parquet preview and confirmed-import paths using Polars, DuckDB, and `fastexcel` for the Calamine Excel engine.
 - Added normalized Parquet cache export and source fingerprint invalidation checks for confirmed tabular imports.
+- Moved confirmed tabular imports into a Qt background job with progress, cancellation request, and user-facing failure handling.
 - Packaging, import, analysis, charting, transforms, and project persistence remain future milestones.

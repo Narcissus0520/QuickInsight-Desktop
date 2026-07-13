@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,7 +24,9 @@ from quick_insight.application.importing import (
     TabularImportService,
     TabularPreview,
 )
+from quick_insight.application.jobs import JobOutcome, JobProgress, JobState
 from quick_insight.infrastructure.csv_import import DELIMITER_BY_NAME, CsvPreview
+from quick_insight.ui.jobs import QtJobRunner
 from quick_insight.ui.models import PreviewTableModel
 
 
@@ -43,6 +45,7 @@ class TabularImportDialog(QDialog):
         self._service = service
         self._preview: TabularPreview | None = None
         self.import_result: TabularImportResult | None = None
+        self._running_job: QtJobRunner[TabularImportResult] | None = None
 
         self._path_edit = QLineEdit()
         self._path_edit.setObjectName("importPathEdit")
@@ -96,7 +99,7 @@ class TabularImportDialog(QDialog):
         self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
         self._buttons.accepted.connect(self._confirm)
-        self._buttons.rejected.connect(self.reject)
+        self._buttons.rejected.connect(self._cancel_or_reject)
         layout.addWidget(self._buttons)
 
         if initial_path is not None:
@@ -150,16 +153,67 @@ class TabularImportDialog(QDialog):
             self.preview()
         if self._preview is None:
             return
-        try:
-            self.import_result = self._service.import_preview(self._preview)
-        except UserFacingError as exc:
-            self._show_error(exc)
-            return
-        self.accept()
+        preview = self._preview
+        self._set_import_running(True)
+        job = QtJobRunner(
+            "tabular_import",
+            lambda context: self._service.import_preview(preview, context=context),
+        )
+        self._running_job = job
+        job.signals.progress.connect(self._on_import_progress)
+        job.signals.completed.connect(self._on_import_completed)
+        QThreadPool.globalInstance().start(job)
 
     def _show_error(self, error: UserFacingError) -> None:
         self._status_label.setText(error.display_text())
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
+
+    def _cancel_or_reject(self) -> None:
+        if self._running_job is None:
+            self.reject()
+            return
+        self._running_job.cancel()
+        self._status_label.setText("正在请求取消导入...")
+
+    def _on_import_progress(self, progress: JobProgress) -> None:
+        if progress.state != JobState.RUNNING:
+            return
+        percent_text = "" if progress.percent is None else f"{progress.percent}% "
+        self._status_label.setText(f"{percent_text}{progress.message_zh}")
+
+    def _on_import_completed(self, outcome: JobOutcome[TabularImportResult]) -> None:
+        self._running_job = None
+        self._set_import_running(False)
+        if outcome.state is JobState.SUCCEEDED and outcome.value is not None:
+            self.import_result = outcome.value
+            self.accept()
+            return
+        if outcome.state is JobState.CANCELLED:
+            self._status_label.setText("导入已取消。")
+            return
+        error = outcome.error
+        if isinstance(error, UserFacingError):
+            self._show_error(error)
+            return
+        self._show_error(
+            UserFacingError(
+                code="IMPORT_UNEXPECTED_FAILURE",
+                title_zh="导入失败",
+                message_zh="导入过程中发生未预期错误。",
+                next_action_zh="请复制技术详情并检查文件格式后重试。",
+                technical_detail=repr(error),
+            )
+        )
+
+    def _set_import_running(self, running: bool) -> None:
+        ok_button = self._buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_button = self._buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        ok_button.setEnabled(not running)
+        cancel_button.setText("取消导入" if running else "取消")
+        self._path_edit.setEnabled(not running)
+        self._encoding_combo.setEnabled(not running)
+        self._delimiter_combo.setEnabled(not running)
+        self._header_check.setEnabled(not running)
 
 
 def _preview_status(preview: TabularPreview) -> str:

@@ -22,7 +22,8 @@ M1 is active.
 - [x] DuckDB workspace for confirmed CSV/TSV imports.
 - [x] Normalized Parquet cache and source invalidation.
 - [x] Safe paged table model backed by DuckDB.
-- [ ] Background import/query jobs with cancellation and clear errors.
+- [x] Background import jobs with progress, cancellation request, and clear errors.
+- [ ] Background paged query jobs with stale-result rejection and cancellation.
 
 ## M2 - Profiling, One-Click Analysis, And Text Corpus Workflow
 

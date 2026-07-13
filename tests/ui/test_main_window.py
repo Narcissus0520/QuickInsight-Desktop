@@ -9,6 +9,7 @@ from quick_insight.application.importing import TabularImportService
 from quick_insight.infrastructure.paths import AppPaths
 from quick_insight.infrastructure.settings import AppSettings
 from quick_insight.infrastructure.workspace import WorkspaceDatabase
+from quick_insight.ui.dialogs import TabularImportDialog
 from quick_insight.ui.main_window import MainWindow
 
 
@@ -56,3 +57,17 @@ def test_main_window_shows_imported_dataset(qtbot, tmp_path) -> None:  # type: i
 
     assert window.findChild(QLabel, "rowCountLabel").text() == "行/记录：1"
     assert window.findChild(QLabel, "approximationLabel").text() == "近似：无"
+
+
+def test_import_dialog_runs_confirm_in_background(qtbot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    source = tmp_path / "sales.csv"
+    source.write_text("name,amount\nalpha,1\n", encoding="utf-8")
+    workspace = WorkspaceDatabase(tmp_path / "workspace.duckdb")
+    service = TabularImportService(workspace)
+    dialog = TabularImportDialog(service=service, initial_path=source)
+    qtbot.addWidget(dialog)
+
+    dialog._confirm()
+    qtbot.waitUntil(lambda: dialog.import_result is not None, timeout=3000)
+
+    assert dialog.import_result.handle.row_count == 1
