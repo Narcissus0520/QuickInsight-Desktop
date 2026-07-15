@@ -42,3 +42,4 @@ The package report is generated at `dist/package-report.json` and `build/package
 - The installer was 171,555,549 bytes; silent install, resource verification, functional workflow, and silent uninstall all passed.
 - The portable functional workflow imported 6 rows, prepared a bar chart with 3 rendered rows, and generated 4,862,239 bytes of offline chart HTML.
 - `SHA256SUMS.txt` was recomputed and independently checked against every listed artifact.
+- The verified assets were published as the non-draft, non-prerelease [GitHub Release v0.0.0](https://github.com/Narcissus0520/QuickInsight-Desktop/releases/tag/v0.0.0) targeting commit `dc3bb3975c9a3f8e51c1fc66576c5b70ad58d5f7`.

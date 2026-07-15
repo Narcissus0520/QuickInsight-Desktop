@@ -94,3 +94,4 @@ M6 is accepted.
   - [x] Build and smoke-test a real Nuitka standalone portable package, including a functional CSV import, analysis recommendation, and offline chart-document workflow.
   - [x] Install/configure Inno Setup and build/smoke-test the x64 installer, including install, resource verification, functional workflow, and uninstall.
   - [x] Generate final artifacts, checksums, license notices, and release notes from a verified build.
+  - [x] Publish the verified `v0.0.0` GitHub Release with the Windows x64 installer, portable ZIP, checksums, license inventory, release notes, and package report.

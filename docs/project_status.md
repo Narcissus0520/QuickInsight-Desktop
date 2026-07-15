@@ -1,12 +1,12 @@
 # Project Status
 
-Date: 2026-07-15
+Date: 2026-07-16
 
 ## Current Version And Milestone
 
 - Version: `0.0.0`
 - Milestone: M6 performance, hardening, and release accepted
-- Status: M0 through M6 are accepted for the current P0 scope. Release artifacts were generated and validated locally; publication is a separate repository-release action.
+- Status: M0 through M6 are accepted for the current P0 scope. The verified Windows x64 artifacts are published as GitHub Release `v0.0.0`.
 
 ## Completed Work
 
@@ -58,7 +58,7 @@ Date: 2026-07-15
 
 - No P0 implementation or M6 acceptance task remains.
 - Release-packaging source stage was merged to `main` through GitHub PR #1 (`0154babc9b47208c704b8f9ba106d73871707faa`).
-- Publish the verified local artifacts through the chosen release process when a GitHub Release is desired.
+- GitHub Release `v0.0.0` is published; future work begins only when a P1/P2 scope is authorized.
 
 ## Known Issues
 
@@ -194,7 +194,8 @@ Date: 2026-07-15
 - M6 final quality gate `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 62 source files, and pytest passed 116 tests on Python 3.13.14 / PySide6 6.11.1 in 54.48 seconds.
 - M6 final security gate `.\scripts\security_review.ps1 -OutputDir build\security-review\final-gate`: exit 0; JSON/Markdown reports recorded 62 production files scanned and 0 findings.
 - GitHub integration: PR #1 was marked ready and merged into `main`; GitHub reported merge commit `0154babc9b47208c704b8f9ba106d73871707faa`.
+- GitHub Release `v0.0.0`: published as a non-draft, non-prerelease release targeting `dc3bb3975c9a3f8e51c1fc66576c5b70ad58d5f7`. GitHub reported all six assets uploaded: `QuickInsight-Setup-x64.exe`, `QuickInsight-portable-x64.zip`, `SHA256SUMS.txt`, `THIRD_PARTY_LICENSES.md`, `release-notes.md`, and `package-report.json`; the uploaded installer and portable ZIP digests matched the verified local SHA-256 values.
 
 ## Next Action
 
-Publish the verified artifacts if a GitHub release is desired.
+Monitor the published release and authorize P1/P2 planning only when ready.
