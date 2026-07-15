@@ -1,27 +1,35 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$DistDir = "dist",
+    [string]$BuildDir = "build\package",
+    [double]$SmokeSeconds = 2,
+    [switch]$SkipInstaller
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $repoRoot
-$buildDir = Join-Path $repoRoot "build"
-New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
 & (Join-Path $PSScriptRoot "test.ps1")
 if ($LASTEXITCODE -ne 0) {
     throw "Test gates failed; build stopped."
 }
 
-$report = @"
-# M0 Build Report
+& (Join-Path $PSScriptRoot "security_review.ps1") -OutputDir "build\security-review\build-gate"
+if ($LASTEXITCODE -ne 0) {
+    throw "Security review failed; build stopped."
+}
 
-Generated: $(Get-Date -Format o)
+$packageParameters = @{
+    DistDir = $DistDir
+    BuildDir = $BuildDir
+    SmokeSeconds = $SmokeSeconds
+}
+if ($SkipInstaller) {
+    $packageParameters.SkipInstaller = $true
+}
 
-- M0 gates ran through scripts/test.ps1.
-- Full installer/portable packaging is intentionally deferred to M6.
-- No release artifact was produced by this M0 script.
-"@
-$report | Set-Content -LiteralPath (Join-Path $buildDir "M0-build-report.md") -Encoding utf8
-Write-Host "M0 build check completed. Report: build\M0-build-report.md"
+& (Join-Path $PSScriptRoot "package.ps1") @packageParameters
+exit $LASTEXITCODE

@@ -912,7 +912,7 @@ class WorkspaceDatabase:
                 SELECT CAST({column_sql} AS VARCHAR) AS value, COUNT(*) AS count
                 FROM {table_sql}
                 WHERE {column_sql} IS NOT NULL
-                GROUP BY value
+                GROUP BY CAST({column_sql} AS VARCHAR)
                 ORDER BY count DESC, value ASC
                 LIMIT 10
                 """

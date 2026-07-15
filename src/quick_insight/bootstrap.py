@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import os
 from collections.abc import Sequence
+from pathlib import Path
 from typing import cast
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from quick_insight import APP_NAME, APP_NAME_ZH, __version__
+from quick_insight.application.packaged_smoke import run_packaged_workflow_smoke
 from quick_insight.infrastructure.cache_cleanup import cleanup_app_cache
 from quick_insight.infrastructure.logging import configure_logging
 from quick_insight.infrastructure.paths import AppPaths
@@ -30,11 +32,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the persisted theme for this launch.",
     )
+    parser.add_argument(
+        "--package-workflow-smoke-result",
+        type=Path,
+        default=None,
+        help="Run the packaged import-to-chart smoke workflow and write its JSON result.",
+    )
     return parser
 
 
 def run(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv or ()))
+    if args.package_workflow_smoke_result is not None:
+        return run_packaged_workflow_smoke(args.package_workflow_smoke_result)
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
 

@@ -73,7 +73,7 @@ M5 is accepted.
 
 ## M6 - Performance, Hardening, And Release
 
-M6 is active.
+M6 is accepted.
 
 - [x] Benchmarks and memory/cache cleanup.
   - [x] Deterministic benchmark harness, `scripts/benchmark.ps1`, and JSON/Markdown report output.
@@ -88,4 +88,9 @@ M6 is active.
 - [x] Security review.
   - [x] Automated AST-based production-code security review.
   - [x] Security review report and documentation.
-- [ ] Packaged smoke tests, installer, portable ZIP, license notices, and release docs.
+- [x] Packaged smoke tests, installer, portable ZIP, license notices, and release docs.
+  - [x] Release packaging automation and unit coverage for standalone build, portable ZIP, Qt WebEngine resource verification, license inventory, checksums, release notes, and optional installer generation.
+  - [x] Isolate pytest temporary files and cache per test-script run so stale build artifacts cannot block the quality gate.
+  - [x] Build and smoke-test a real Nuitka standalone portable package, including a functional CSV import, analysis recommendation, and offline chart-document workflow.
+  - [x] Install/configure Inno Setup and build/smoke-test the x64 installer, including install, resource verification, functional workflow, and uninstall.
+  - [x] Generate final artifacts, checksums, license notices, and release notes from a verified build.

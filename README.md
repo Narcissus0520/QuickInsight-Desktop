@@ -2,7 +2,7 @@
 
 QuickInsight Desktop is a Windows-first, offline-first desktop application for fast analysis of tabular datasets and manually categorized text records.
 
-The project is in M6 performance, hardening, and release work. The current application provides:
+M0 through M6 are accepted for the current P0 scope. The current application provides:
 
 - A real PySide6 desktop shell with Simplified Chinese workflow screens.
 - Tabular CSV/TSV/Excel/Parquet import previews, DuckDB-backed virtual preview, profiling, findings, transforms, and processed-data export.
@@ -11,7 +11,7 @@ The project is in M6 performance, hardening, and release work. The current appli
 - `.qiproject` save/reopen with source validation and relocation.
 - Benchmarks, cache cleanup, accessibility metadata, and automated high-DPI visual sweep tooling.
 
-Installer/portable packaging and final release hardening are still tracked in `TASKS.md`.
+Verified local release automation produces a standalone portable ZIP and x64 installer with Qt WebEngine resource checks, functional workflow smoke tests, checksums, release notes, and license inventory. Publication remains a separate release-management action.
 
 ## Development
 

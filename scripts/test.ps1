@@ -16,6 +16,12 @@ if (-not (Test-Path -LiteralPath $python)) {
 if ([string]::IsNullOrWhiteSpace($env:QT_QPA_PLATFORM)) {
     $env:QT_QPA_PLATFORM = "offscreen"
 }
+$testTempRoot = Join-Path $repoRoot "build\test-temp"
+New-Item -ItemType Directory -Force -Path $testTempRoot | Out-Null
+$pytestTemp = Join-Path $testTempRoot ("pytest-" + [Guid]::NewGuid().ToString("N"))
+$pytestCacheRoot = Join-Path $repoRoot "build\pytest-cache"
+New-Item -ItemType Directory -Force -Path $pytestCacheRoot | Out-Null
+$pytestCache = Join-Path $pytestCacheRoot ("cache-" + [Guid]::NewGuid().ToString("N"))
 
 $results = New-Object System.Collections.Generic.List[string]
 
@@ -36,7 +42,11 @@ function Invoke-Gate {
 try {
     Invoke-Gate -Name "ruff" -Arguments @("-m", "ruff", "check", ".")
     Invoke-Gate -Name "mypy" -Arguments @("-m", "mypy", "src")
-    $pytestArgs = @("-m", "pytest")
+    $pytestArgs = @(
+        "-m", "pytest",
+        "--basetemp", $pytestTemp,
+        "-o", "cache_dir=$pytestCache"
+    )
     if ($NoUi) {
         $pytestArgs += @("tests/unit")
     }
