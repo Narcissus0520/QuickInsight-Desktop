@@ -479,7 +479,6 @@ def _prepared_figure(spec: ChartSpec, prepared: PreparedChartDataset) -> go.Figu
 def _apply_common_layout(figure: go.Figure, title: str) -> None:
     figure.update_layout(
         title=title,
-        template="plotly_white",
         font={
             "family": "Microsoft YaHei UI, Microsoft YaHei, Segoe UI, sans-serif",
             "size": 13,

@@ -7,8 +7,9 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
@@ -67,6 +68,49 @@ class VerificationResult:
 
 
 @dataclass(frozen=True)
+class InstallerSmokeResult:
+    install_result: CommandResult
+    verification: VerificationResult | None
+    launch_result: CommandResult | None
+    uninstall_result: CommandResult | None
+
+    @property
+    def passed(self) -> bool:
+        return (
+            self.install_result.succeeded
+            and self.verification is not None
+            and self.verification.passed
+            and self.launch_result is not None
+            and self.launch_result.succeeded
+            and self.uninstall_result is not None
+            and self.uninstall_result.succeeded
+        )
+
+    @property
+    def commands(self) -> tuple[CommandResult, ...]:
+        return tuple(
+            command
+            for command in (
+                self.install_result,
+                self.launch_result,
+                self.uninstall_result,
+            )
+            if command is not None
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "install_result": self.install_result.to_dict(),
+            "verification": None if self.verification is None else self.verification.to_dict(),
+            "launch_result": None if self.launch_result is None else self.launch_result.to_dict(),
+            "uninstall_result": None
+            if self.uninstall_result is None
+            else self.uninstall_result.to_dict(),
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True)
 class LicenseEntry:
     name: str
     version: str
@@ -99,8 +143,10 @@ class PackageResult:
     license_dir: Path
     verification: VerificationResult
     smoke_result: CommandResult | None
+    workflow_smoke_report: Path | None
     build_status: str
     installer_status: str
+    installer_smoke: InstallerSmokeResult | None
     commands: tuple[CommandResult, ...] = field(default_factory=tuple)
     warnings: tuple[str, ...] = field(default_factory=tuple)
     schema_version: int = 1
@@ -115,6 +161,8 @@ class PackageResult:
             and self.smoke_result is not None
             and self.smoke_result.succeeded
             and self.installer_status == "created"
+            and self.installer_smoke is not None
+            and self.installer_smoke.passed
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -133,8 +181,12 @@ class PackageResult:
             "license_dir": str(self.license_dir),
             "verification": self.verification.to_dict(),
             "smoke_result": None if self.smoke_result is None else self.smoke_result.to_dict(),
+            "workflow_smoke_report": _optional_path(self.workflow_smoke_report),
             "build_status": self.build_status,
             "installer_status": self.installer_status,
+            "installer_smoke": None
+            if self.installer_smoke is None
+            else self.installer_smoke.to_dict(),
             "commands": [command.to_dict() for command in self.commands],
             "warnings": list(self.warnings),
             "passed": self.passed,
@@ -203,26 +255,51 @@ def build_release_package(
     portable_zip = create_portable_zip(portable_dir, resolved_dist / PORTABLE_ZIP_NAME)
     setup_exe: Path | None = None
     installer_status = "skipped_by_request" if skip_installer else "skipped_missing_inno_setup"
+    installer_smoke: InstallerSmokeResult | None = None
     if not skip_installer:
-        setup_exe, installer_status = _try_build_inno_setup(
+        setup_exe, installer_status, installer_command = _try_build_inno_setup(
             repo_root=resolved_root,
             build_dir=resolved_build,
             dist_dir=resolved_dist,
             portable_dir=portable_dir,
         )
+        if installer_command is not None:
+            commands.append(installer_command)
         if setup_exe is None:
-            warnings.append(
-                "Inno Setup compiler was not found; installer EXE was not produced."
+            if installer_status == "skipped_missing_inno_setup":
+                warnings.append(
+                    "Inno Setup compiler was not found; installer EXE was not produced."
+                )
+            else:
+                warnings.append(f"Installer generation failed: {installer_status}.")
+        elif skip_smoke:
+            warnings.append("Installer smoke validation was skipped by request.")
+        else:
+            installer_smoke_dir = resolved_build / "installer-smoke"
+            _clean_directory(installer_smoke_dir, resolved_build)
+            installer_smoke = run_installer_smoke(
+                setup_exe,
+                smoke_seconds=smoke_seconds,
+                install_dir=installer_smoke_dir,
             )
+            commands.extend(installer_smoke.commands)
+            if not installer_smoke.passed:
+                warnings.append("Installer smoke validation did not pass.")
 
     smoke_result: CommandResult | None = None
+    workflow_smoke_report: Path | None = None
     if skip_smoke:
         warnings.append("Packaged smoke launch was skipped by request.")
     else:
-        smoke_result = run_packaged_smoke(portable_dir / APP_EXE_NAME, smoke_seconds)
+        workflow_smoke_report = resolved_build / "portable-workflow-smoke.json"
+        smoke_result = run_packaged_smoke(
+            portable_dir / APP_EXE_NAME,
+            smoke_seconds,
+            workflow_result=workflow_smoke_report,
+        )
         commands.append(smoke_result)
         if not smoke_result.succeeded:
-            raise RuntimeError("Packaged smoke launch failed; see package-report.json.")
+            warnings.append("Portable packaged workflow smoke did not pass.")
 
     release_notes = write_release_notes(
         resolved_dist / RELEASE_NOTES_NAME,
@@ -252,8 +329,10 @@ def build_release_package(
         license_dir=license_dir,
         verification=verification,
         smoke_result=smoke_result,
+        workflow_smoke_report=workflow_smoke_report,
         build_status=build_status,
         installer_status=installer_status,
+        installer_smoke=installer_smoke,
         commands=tuple(commands),
         warnings=tuple(warnings),
     )
@@ -299,21 +378,128 @@ def create_portable_zip(portable_dir: Path, destination: Path) -> Path:
     return destination
 
 
-def run_packaged_smoke(executable: Path, smoke_seconds: float) -> CommandResult:
+def run_packaged_smoke(
+    executable: Path,
+    smoke_seconds: float,
+    *,
+    workflow_result: Path | None = None,
+) -> CommandResult:
     seconds = str(smoke_seconds)
     env = os.environ.copy()
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
-    return _run_command(
-        (
-            str(executable),
-            "--smoke-seconds",
-            seconds,
-            "--theme",
-            "dark",
-        ),
+    command = [
+        str(executable),
+        "--smoke-seconds",
+        seconds,
+        "--theme",
+        "dark",
+    ]
+    if workflow_result is not None:
+        command.extend(("--package-workflow-smoke-result", str(workflow_result)))
+    result = _run_command(
+        tuple(command),
         cwd=executable.parent,
         env=env,
         timeout_seconds=max(30, int(smoke_seconds) + 20),
+    )
+    if workflow_result is None or not result.succeeded:
+        return result
+    if not workflow_result.is_file():
+        return replace(
+            result,
+            return_code=1,
+            stderr="The packaged workflow smoke did not write a result report.",
+        )
+    try:
+        payload = json.loads(workflow_result.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return replace(result, return_code=1, stderr=f"Invalid workflow smoke report: {exc}")
+    if not isinstance(payload, dict) or payload.get("passed") is not True:
+        return replace(
+            result,
+            return_code=1,
+            stderr="The packaged workflow smoke reported failure.",
+        )
+    return result
+
+
+def run_installer_smoke(
+    installer: Path,
+    *,
+    smoke_seconds: float,
+    install_dir: Path,
+) -> InstallerSmokeResult:
+    install_dir.parent.mkdir(parents=True, exist_ok=True)
+    log_path = install_dir.parent / "installer-smoke-install.log"
+    if log_path.exists():
+        log_path.unlink()
+    install_command = (
+        str(installer),
+        "/SP-",
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        f'/DIR="{install_dir}"',
+        f'/LOG="{log_path}"',
+    )
+    install_result = _run_command(
+        install_command,
+        cwd=installer.parent,
+        timeout_seconds=600,
+        raw_command_line=_windows_command_line(installer, install_command[1:]),
+    )
+    if not install_result.succeeded and log_path.is_file():
+        log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-6000:]
+        install_result = replace(
+            install_result,
+            stderr=(install_result.stderr + "\nInstaller log:\n" + log_tail).strip(),
+        )
+    if not install_result.succeeded:
+        return InstallerSmokeResult(
+            install_result=install_result,
+            verification=None,
+            launch_result=None,
+            uninstall_result=None,
+        )
+
+    verification = verify_portable_tree(install_dir)
+    if not verification.passed:
+        return InstallerSmokeResult(
+            install_result=install_result,
+            verification=verification,
+            launch_result=None,
+            uninstall_result=None,
+        )
+
+    launch_result = run_packaged_smoke(
+        install_dir / APP_EXE_NAME,
+        smoke_seconds,
+        workflow_result=install_dir / "workflow-smoke.json",
+    )
+    uninstaller = install_dir / "unins000.exe"
+    if not uninstaller.is_file():
+        uninstall_result = CommandResult(
+            command=(str(uninstaller),),
+            return_code=1,
+            stdout="",
+            stderr="The installer did not create unins000.exe.",
+        )
+    else:
+        uninstall_result = _run_command(
+            (
+                str(uninstaller),
+                "/VERYSILENT",
+                "/SUPPRESSMSGBOXES",
+                "/NORESTART",
+            ),
+            cwd=install_dir,
+            timeout_seconds=600,
+        )
+    return InstallerSmokeResult(
+        install_result=install_result,
+        verification=verification,
+        launch_result=launch_result,
+        uninstall_result=uninstall_result,
     )
 
 
@@ -382,7 +568,10 @@ def write_release_notes(
                 "## Validation",
                 "",
                 "- Standalone package must contain QuickInsight.exe and Qt WebEngine resources.",
-                "- Packaged smoke launch runs the application with an auto-exit timer.",
+                (
+                    "- Portable and installer smoke launches run the application "
+                    "with an auto-exit timer."
+                ),
                 "- The app remains offline-first; no telemetry or remote assets are enabled.",
                 "",
                 "## Known Limitations",
@@ -419,6 +608,14 @@ def _build_standalone_with_nuitka(repo_root: Path, build_dir: Path) -> CommandRe
     temp_dir.mkdir(parents=True, exist_ok=True)
     source = repo_root / "src" / "quick_insight" / "main.py"
     resources = repo_root / "src" / "quick_insight" / "resources"
+    # Plotly loads this schema at runtime instead of importing it as Python code.
+    # Bundle it explicitly so standalone builds can construct figures without a
+    # developer environment beside the executable.
+    import plotly
+
+    plotly_package = Path(plotly.__file__).parent
+    validator_schema = plotly_package / "validators" / "_validators.json"
+    plotly_js = plotly_package / "package_data" / "plotly.min.js"
     env = os.environ.copy()
     env["NUITKA_CACHE_DIR"] = str(cache_dir)
     env["TEMP"] = str(temp_dir)
@@ -431,6 +628,25 @@ def _build_standalone_with_nuitka(repo_root: Path, build_dir: Path) -> CommandRe
         "--standalone",
         "--enable-plugin=pyside6",
         "--include-package=quick_insight",
+        "--include-module=plotly.graph_objs._bar",
+        "--include-module=plotly.graph_objs._box",
+        "--include-module=plotly.graph_objs._deprecations",
+        "--include-module=plotly.graph_objs._heatmap",
+        "--include-module=plotly.graph_objs._histogram",
+        "--include-module=plotly.graph_objs._pie",
+        "--include-module=plotly.graph_objs._scatter",
+        "--include-module=plotly.graph_objs._scattergl",
+        "--include-module=plotly.graph_objs._layout",
+        "--include-package=plotly.graph_objs.bar",
+        "--include-package=plotly.graph_objs.box",
+        "--include-package=plotly.graph_objs.heatmap",
+        "--include-package=plotly.graph_objs.histogram",
+        "--include-package=plotly.graph_objs.layout",
+        "--include-package=plotly.graph_objs.pie",
+        "--include-package=plotly.graph_objs.scatter",
+        "--include-package=plotly.graph_objs.scattergl",
+        f"--include-data-file={validator_schema}=plotly/validators/_validators.json",
+        f"--include-data-file={plotly_js}=plotly/package_data/plotly.min.js",
         f"--include-data-dir={resources}=quick_insight/resources",
         f"--output-dir={nuitka_dir}",
         f"--output-filename={APP_EXE_NAME}",
@@ -439,7 +655,7 @@ def _build_standalone_with_nuitka(repo_root: Path, build_dir: Path) -> CommandRe
         "--assume-yes-for-downloads",
         "--quiet",
     )
-    return _run_command(command, cwd=repo_root, env=env, timeout_seconds=1800)
+    return _run_command(command, cwd=repo_root, env=env, timeout_seconds=3600)
 
 
 def _find_standalone_dir(build_dir: Path) -> Path:
@@ -458,10 +674,10 @@ def _try_build_inno_setup(
     build_dir: Path,
     dist_dir: Path,
     portable_dir: Path,
-) -> tuple[Path | None, str]:
-    compiler = shutil.which("ISCC.exe")
+) -> tuple[Path | None, str, CommandResult | None]:
+    compiler = _locate_inno_setup_compiler()
     if compiler is None:
-        return None, "skipped_missing_inno_setup"
+        return None, "skipped_missing_inno_setup", None
     iss_path = build_dir / "QuickInsight.iss"
     iss_path.write_text(
         _inno_setup_script(
@@ -471,13 +687,34 @@ def _try_build_inno_setup(
         ),
         encoding="utf-8",
     )
-    command = _run_command((compiler, str(iss_path)), cwd=repo_root, timeout_seconds=600)
+    command = _run_command((str(compiler), str(iss_path)), cwd=repo_root, timeout_seconds=600)
     if not command.succeeded:
-        return None, f"failed_exit_{command.return_code}"
+        return None, f"failed_exit_{command.return_code}", command
     setup_exe = dist_dir / SETUP_EXE_NAME
     if setup_exe.exists():
-        return setup_exe, "created"
-    return None, "failed_missing_output"
+        return setup_exe, "created", command
+    return None, "failed_missing_output", command
+
+
+def _locate_inno_setup_compiler() -> Path | None:
+    on_path = shutil.which("ISCC.exe")
+    if on_path is not None:
+        return Path(on_path)
+
+    install_roots: list[Path] = []
+    for variable, segments in (
+        ("LOCALAPPDATA", ("Programs", "Inno Setup 6")),
+        ("PROGRAMFILES(X86)", ("Inno Setup 6",)),
+        ("PROGRAMFILES", ("Inno Setup 6",)),
+    ):
+        location = os.environ.get(variable)
+        if location:
+            install_roots.append(Path(location).joinpath(*segments))
+    for root in install_roots:
+        compiler = root / "ISCC.exe"
+        if compiler.is_file():
+            return compiler
+    return None
 
 
 def _inno_setup_script(*, repo_root: Path, dist_dir: Path, portable_dir: Path) -> str:
@@ -490,6 +727,7 @@ def _inno_setup_script(*, repo_root: Path, dist_dir: Path, portable_dir: Path) -
             f"AppVersion={__version__}",
             "DefaultDirName={autopf}\\QuickInsight Desktop",
             "DefaultGroupName=QuickInsight Desktop",
+            "PrivilegesRequired=lowest",
             "DisableProgramGroupPage=yes",
             f"OutputDir={dist_dir}",
             "OutputBaseFilename=QuickInsight-Setup-x64",
@@ -570,6 +808,9 @@ def _write_failure_report(
 def _package_report_markdown(result: PackageResult) -> str:
     setup = result.setup_exe.name if result.setup_exe is not None else result.installer_status
     smoke = "skipped" if result.smoke_result is None else str(result.smoke_result.succeeded)
+    installer_smoke = (
+        "skipped" if result.installer_smoke is None else str(result.installer_smoke.passed)
+    )
     return "\n".join(
         [
             "# QuickInsight Package Report",
@@ -590,6 +831,7 @@ def _package_report_markdown(result: PackageResult) -> str:
             f"- Portable resources present: {result.verification.passed}",
             f"- Standalone build completed: {result.build_status == 'created'}",
             f"- Packaged smoke passed: {smoke}",
+            f"- Installer smoke passed: {installer_smoke}",
             "",
         ]
     )
@@ -601,22 +843,29 @@ def _run_command(
     cwd: Path,
     timeout_seconds: int,
     env: dict[str, str] | None = None,
+    raw_command_line: str | None = None,
 ) -> CommandResult:
     completed = subprocess.run(
-        command,
+        command if raw_command_line is None else raw_command_line,
         cwd=cwd,
         env=env,
         timeout=timeout_seconds,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     return CommandResult(
         command=command,
         return_code=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
+        stdout=completed.stdout or "",
+        stderr=completed.stderr or "",
     )
+
+
+def _windows_command_line(executable: Path, arguments: tuple[str, ...]) -> str:
+    return " ".join((f'"{executable}"', *arguments))
 
 
 def _resolve_under_root(root: Path, path: Path) -> Path:
@@ -635,7 +884,14 @@ def _clean_directory(path: Path, root: Path) -> None:
     except ValueError as exc:
         raise ValueError(f"Refusing to clean {resolved}; it is outside {root}.") from exc
     if resolved.exists():
-        shutil.rmtree(resolved)
+        for attempt in range(5):
+            try:
+                shutil.rmtree(resolved)
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(1)
 
 
 def _find_file(root: Path, name: str) -> Path | None:

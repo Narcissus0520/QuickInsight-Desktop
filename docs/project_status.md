@@ -5,8 +5,8 @@ Date: 2026-07-15
 ## Current Version And Milestone
 
 - Version: `0.0.0`
-- Milestone: M6 performance, hardening, and release is active; release-packaging automation is implemented but real artifacts are not yet validated
-- Status: M1 tabular import and virtual preview accepted; M2 profiling, one-click analysis, and text corpus workflow accepted; M3 explainable chart recommendation accepted; M4 chart workspace and export accepted; M5 transforms and project persistence accepted.
+- Milestone: M6 performance, hardening, and release accepted
+- Status: M0 through M6 are accepted for the current P0 scope. Release artifacts were generated and validated locally; publication is a separate repository-release action.
 
 ## Completed Work
 
@@ -48,19 +48,19 @@ Date: 2026-07-15
 - Added the first M6 accessibility/DPI baseline: reusable UI accessibility helpers, accessible names/descriptions/tooltips for primary toolbar, welcome, workspace, transform, text-labeling, status, and chart-export controls, DPI-friendly minimum hit-target sizes for primary actions, and UI smoke coverage for the baseline.
 - Completed the M6 automated high-DPI visual sweep. `scripts/dpi_sweep.ps1` now runs isolated Qt offscreen passes for 100%, 125%, 150%, and 200% scale factors, captures welcome/preview/overview/recommendations/chart/text-labeling screenshots, records widget geometry and button text-fit checks, and writes JSON/Markdown evidence. The sweep exposed high-content pages stretching the window above 1366 x 768, so the transform and text-labeling work areas now use scrollable panels; the follow-up report kept all four scale factors at a 1366 x 768 logical window.
 - Completed the M6 security review slice. `scripts/security_review.ps1` now runs an AST-based production-code review for dynamic execution, unsafe/network-client imports, shell subprocesses, direct ZIP extraction, and remote URL literals, then writes JSON/Markdown evidence. The current review scanned 59 production files and reported zero findings.
-- Added M6 release-packaging automation: pinned Nuitka, standalone-build orchestration, portable ZIP generation, required Qt WebEngine resource verification, packaged auto-exit smoke launch, third-party license inventory, SHA-256 sums, release notes, JSON/Markdown package reports, and an optional Inno Setup installer path. Unit tests cover portable-tree verification, ZIP contents, generated notices/checksums, license inventory, and a no-build package path. No real release artifact has yet been claimed or recorded.
+- Completed M6 release packaging on the Windows x64 development machine: Nuitka produced a standalone portable tree, Inno Setup 6.7.3 produced the x64 installer, and both were verified for the Qt WebEngine executable/DLL/resource set.
+- Added a packaged functional workflow smoke test that creates a CSV, imports it into DuckDB, profiles it, receives a bar-chart recommendation, prepares chart data, and renders a CSP-restricted offline Plotly HTML document. The standalone portable executable and the installed executable both completed that workflow successfully.
+- Adjusted offline chart layout to use explicit local styling rather than a dynamically loaded Plotly template, and explicitly bundle the required P0 Plotly graph modules, validator schema, and local Plotly.js asset for deterministic Nuitka packaging.
+- Fixed DuckDB top-value grouping for a source column literally named `category`; grouping now uses the quoted source expression rather than an ambiguous SQL alias.
 - Fixed `scripts/test.ps1` so every run uses isolated pytest temporary and cache paths under `build/`; inaccessible stale artifacts from a prior sandbox user no longer prevent test setup.
 
 ## Remaining Work
 
-- Run and validate a real Nuitka standalone portable build, including Qt WebEngine resource checks and packaged smoke launch.
-- Install/configure Inno Setup (`ISCC.exe` was not found on PATH on 2026-07-15), then build and smoke-test the x64 installer.
-- Generate final release artifacts, checksums, license notices, and release notes from the verified package run.
-- Continue committing once per completed milestone or coherent stage.
+- No P0 implementation or M6 acceptance task remains.
+- Review and merge the staged GitHub pull request when ready, then publish the verified local artifacts through the chosen release process.
 
 ## Known Issues
 
-- Full packaging is intentionally deferred to M6.
 - SVG/PNG export requires a loaded desktop `QWebEngineView`; offscreen automated tests cover HTML/JSON export and the `toImage` bridge script rather than executing browser image capture.
 - Transform history is persisted for derived transform preview tables; full operation-history editing remains a later hardening task.
 - Source relocation updates the currently opened project manifest after evidence validation; users must still save the project to persist the updated source path into the `.qiproject` file.
@@ -71,8 +71,7 @@ Date: 2026-07-15
 - P0 benchmark data under `build/benchmarks` is generated local evidence and intentionally ignored by Git.
 - DPI sweep screenshots and reports under `build/dpi-sweep` are generated local evidence and intentionally ignored by Git.
 - Security review reports under `build/security-review` are generated local evidence and intentionally ignored by Git.
-- Inno Setup is not currently available on `PATH`, so an installer cannot yet be produced on this machine.
-- `build/package` contains only unverified intermediate Nuitka cache from an earlier attempt; it does not contain `QuickInsight.exe` or a release artifact.
+- Generated artifacts under `dist/` and intermediate evidence under `build/` are intentionally ignored by Git; they must be attached to a release explicitly rather than inferred from source control.
 
 ## Latest Test And Build Results
 
@@ -189,7 +188,11 @@ Date: 2026-07-15
 - M6 release-packaging automation `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 61 source files, pytest passed 110 tests on Python 3.13.14 / PySide6 6.11.1 in 56.47 seconds.
 - M6 release-packaging security gate `.\scripts\security_review.ps1 -OutputDir build\security-review\release-packaging-gate`: exit 0; JSON/Markdown reports recorded 61 production files scanned and 0 findings.
 - M6 security review `.\scripts\run.ps1 -SmokeSeconds 2`: exit 0; Qt app launched through the project script and auto-exited.
+- M6 release package `.\scripts\package.ps1`: exit 0; `dist/package-report.json` recorded `passed=true`, portable and installer resource verification passed, and installer install/workflow/uninstall passed. Portable functional workflow reported 6 imported rows, a `bar` chart, 3 rendered rows, and a 4,862,239-byte offline HTML document.
+- M6 release artifact verification: the 258,849,949-byte portable ZIP passed `testzip()` and required-file checks; `SHA256SUMS.txt` matched every listed artifact; the 171,555,549-byte installer, release notes, license inventory, and package report were present.
+- M6 final quality gate `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 62 source files, and pytest passed 116 tests on Python 3.13.14 / PySide6 6.11.1 in 54.48 seconds.
+- M6 final security gate `.\scripts\security_review.ps1 -OutputDir build\security-review\final-gate`: exit 0; JSON/Markdown reports recorded 62 production files scanned and 0 findings.
 
 ## Next Action
 
-Run the real Nuitka portable build and packaged smoke validation, then configure Inno Setup to complete installer validation.
+Review and merge the draft release-packaging pull request, then publish the verified artifacts if a GitHub release is desired.

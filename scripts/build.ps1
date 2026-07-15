@@ -22,14 +22,14 @@ if ($LASTEXITCODE -ne 0) {
     throw "Security review failed; build stopped."
 }
 
-$packageArgs = @(
-    "-DistDir", $DistDir,
-    "-BuildDir", $BuildDir,
-    "-SmokeSeconds", $SmokeSeconds
-)
+$packageParameters = @{
+    DistDir = $DistDir
+    BuildDir = $BuildDir
+    SmokeSeconds = $SmokeSeconds
+}
 if ($SkipInstaller) {
-    $packageArgs += "-SkipInstaller"
+    $packageParameters.SkipInstaller = $true
 }
 
-& (Join-Path $PSScriptRoot "package.ps1") @packageArgs
+& (Join-Path $PSScriptRoot "package.ps1") @packageParameters
 exit $LASTEXITCODE
