@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Published the verified `v0.0.0` GitHub Release with the Windows x64 installer, portable ZIP, SHA-256 sums, third-party license inventory, release notes, and package report.
 - Completed M6 release validation with a real Nuitka standalone portable package and Inno Setup x64 installer, including required Qt WebEngine resource checks, silent install/uninstall, SHA-256 sums, release notes, and third-party license inventory.
 - Added a packaged functional smoke workflow covering CSV import, DuckDB profiling, chart recommendation, chart-data preparation, and CSP-restricted offline Plotly HTML generation for both portable and installed executables.
 - Made Plotly/Nuitka collection deterministic for P0 chart families and replaced the dynamically loaded white template with explicit local chart styling.
