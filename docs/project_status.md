@@ -57,7 +57,8 @@ Date: 2026-07-15
 ## Remaining Work
 
 - No P0 implementation or M6 acceptance task remains.
-- Review and merge the staged GitHub pull request when ready, then publish the verified local artifacts through the chosen release process.
+- Release-packaging source stage was merged to `main` through GitHub PR #1 (`0154babc9b47208c704b8f9ba106d73871707faa`).
+- Publish the verified local artifacts through the chosen release process when a GitHub Release is desired.
 
 ## Known Issues
 
@@ -192,7 +193,8 @@ Date: 2026-07-15
 - M6 release artifact verification: the 258,849,949-byte portable ZIP passed `testzip()` and required-file checks; `SHA256SUMS.txt` matched every listed artifact; the 171,555,549-byte installer, release notes, license inventory, and package report were present.
 - M6 final quality gate `.\scripts\test.ps1`: exit 0; ruff passed, mypy passed for 62 source files, and pytest passed 116 tests on Python 3.13.14 / PySide6 6.11.1 in 54.48 seconds.
 - M6 final security gate `.\scripts\security_review.ps1 -OutputDir build\security-review\final-gate`: exit 0; JSON/Markdown reports recorded 62 production files scanned and 0 findings.
+- GitHub integration: PR #1 was marked ready and merged into `main`; GitHub reported merge commit `0154babc9b47208c704b8f9ba106d73871707faa`.
 
 ## Next Action
 
-Review and merge the draft release-packaging pull request, then publish the verified artifacts if a GitHub release is desired.
+Publish the verified artifacts if a GitHub release is desired.
