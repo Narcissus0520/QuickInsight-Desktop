@@ -89,3 +89,8 @@ M6 is active.
   - [x] Automated AST-based production-code security review.
   - [x] Security review report and documentation.
 - [ ] Packaged smoke tests, installer, portable ZIP, license notices, and release docs.
+  - [x] Release packaging automation and unit coverage for standalone build, portable ZIP, Qt WebEngine resource verification, license inventory, checksums, release notes, and optional installer generation.
+  - [x] Isolate pytest temporary files and cache per test-script run so stale build artifacts cannot block the quality gate.
+  - [ ] Build and smoke-test a real Nuitka standalone portable package.
+  - [ ] Install/configure Inno Setup and build/smoke-test the x64 installer.
+  - [ ] Generate final artifacts, checksums, license notices, and release notes from a verified build.

@@ -36,3 +36,5 @@
 - Added the first M6 accessibility/DPI baseline: accessible names/descriptions/tooltips for primary controls, minimum hit-target sizes for key actions, and UI smoke tests for the baseline.
 - Added an automated M6 DPI visual sweep with `scripts/dpi_sweep.ps1`, per-scale screenshots, geometry/text-fit checks, and reports for 100%, 125%, 150%, and 200% scaling; adjusted high-content workspace pages to remain usable at 1366 x 768.
 - Added an automated M6 security review runner with JSON/Markdown reports, tests for prohibited patterns, and documentation of current P0 security boundaries.
+- Added M6 release-packaging automation for Nuitka standalone builds, portable ZIPs, Qt WebEngine resource checks, packaged smoke launches, license inventory, checksums, release notes, and optional Inno Setup installers.
+- Isolated pytest temporary files and cache directories per `scripts/test.ps1` run so inaccessible stale build artifacts cannot block the quality gate.
